@@ -31,8 +31,19 @@ java_library {
     srcs: [
         "JDvrLib/**/*.java",
     ],
+    vendor: true,
     sdk_version: "system_current",
-    proprietary: true,
+    installable: true,
+    //proprietary: true,
+    //dxflags: ["--core-library"],
+
+    static_libs: [
+        "droidlogic.jasplayer",
+    ],
+
+    required: [
+        "jdvrlib.xml",
+    ],
 }
 
 android_app {
@@ -56,4 +67,62 @@ android_app {
         "androidx-constraintlayout_constraintlayout",
         "JDvrLib",
     ],
+}
+
+cc_library_shared {
+    name: "libjdvrlib-jni",
+    vendor: true,
+    srcs: [
+        "jni/*.cpp"
+    ],
+    cflags: [
+        "-Wall",
+        "-Wno-unused-parameter",
+        "-Wno-unused-function",
+    ],
+    header_libs: [
+        "jni_headers",
+    ],
+    shared_libs: [
+        "liblog",
+    ],
+    local_include_dirs: [
+        "jni/common",
+        "jni/include",
+    ],
+    export_include_dirs: [
+        "jni/include",
+    ],
+}
+
+cc_library_shared {
+    name: "libjdvrlib-ref-native-client",
+    vendor: true,
+    srcs: [
+        "jni/ref-native-client/*.cpp",
+        "jni/Utilities.cpp"
+    ],
+    cflags: [
+        "-Wall",
+        "-Wno-unused-parameter",
+        "-Wno-unused-function",
+    ],
+    header_libs: [
+        "jni_headers",
+    ],
+    shared_libs: [
+        "liblog",
+        "libjdvrlib-jni",
+    ],
+    local_include_dirs: [
+        "jni/common",
+        "jni",
+    ],
+}
+
+prebuilt_etc {
+    name: "jdvrlib.xml",
+    vendor: true,
+    src: "jdvrlib.xml",
+    sub_dir: "permissions",
 }

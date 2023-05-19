@@ -1,87 +1,226 @@
 package com.droidlogic.jdvrlib;
 
 import android.os.SystemClock;
+import android.util.JsonReader;
 import android.util.Log;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.io.StringReader;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Locale;
 import java.util.stream.Collectors;
 
+import com.droidlogic.jdvrlib.JDvrRecorder.JDvrStreamInfo;
+
 public class JDvrFile {
-    final private String TAG = JDvrRecorder.class.getSimpleName();
+    final static private String TAG = JDvrFile.class.getSimpleName();
     final private String mPathPrefix;
-    final private boolean mIsTimeshift;
-    final private long mLimitSize;
-    final private int mLimitSeconds;
+    final private int mType;  // 0: for normal recording, 1: for timeshift recording, 2: for playback
+    private long mLimitSize = Long.MAX_VALUE;
+    private int mLimitSeconds = Integer.MAX_VALUE;
     private final ArrayList<JDvrSegment> mSegments = new ArrayList<>();
     final private String mStatPath;
     final private String mListPath;
+    final private String mLockPath;
+    FileChannel mLockChannel;
+    FileLock mLock;
     private long mTimestampOfLastIndexWrite = 0;
     private long mTimestampOfOrigin = 0;
     private long mTotalObsoletePausedTime = 0;   // in ms
-    final private static int mMinIndexInterval = 300;  // in ms
-    private ArrayList<JDvrRecorder.JDvrStreamInfo> mStreamArray = new ArrayList<>();
+    final public static int mMinIndexInterval = 300;  // in ms
+    private ArrayList<JDvrStreamInfo> mCurrentRecordingStreams = new ArrayList<>();
     private boolean mPidHasChanged = false;
+    private final Comparator<JDvrSegment> mStartTimeCmp = Comparator.comparingLong(JDvrSegment::getStartTime);
+    private int mSegmentIdBeingRead = 0;
+    private int mLastLoadedSegmentId = -1;
+    private long mPlayingTime = 0L;     // in ms
+    private long mLastPts = 0L;
+    private int mInTransition = 4;
 
     // Public APIs
     /**
-     * Constructs a JDvrFile instance.
+     * Constructs a JDvrFile instance for normal recording.
      * A JDvrFile object represents a PVR recording which consists of a series of associated files
      * like ts, index, status and list files.
-     * This constructor is preferred to be used to create a timeshift recording, so is_timeshift
-     * should be true and valid values should be supplied to limit_size or limit_seconds.
      *
      * @param path_prefix The path prefix of a recording. All the associated files use the prefix
      *                    as part of their file path.
-     * @param is_timeshift Indicate whether the recording is a timeshift recording. Normally,
-     *                     timeshift recordings have a restricted recording size or duration.
-     * @param limit_size The timeshift recording file size limitation in bytes. 0 means no
-     *                   limitation.
-     * @param limit_seconds The timeshift recording duration limitation in seconds. 0 means no
-     *                      limitation.
-     * @throws IOException if the folder part of path_prefix for storing recording files is inaccessible.
+     * @param trunc whether to clean the recording if it already exists.
      */
-    public JDvrFile(String path_prefix, boolean is_timeshift, long limit_size, int limit_seconds) throws IOException {
+    public JDvrFile(String path_prefix, boolean trunc) {
+        mType = 0;
         final String dirname = path_prefix.substring(0,path_prefix.lastIndexOf('/'));
         File dir = new File(dirname);
         if (!dir.exists() && !dir.mkdirs()) {
-            throw new IOException("Unable to create " + dir.getAbsolutePath());
+            throw new RuntimeException("Unable to create " + dir.getAbsolutePath());
         }
         mPathPrefix = path_prefix;
-        mIsTimeshift = is_timeshift;
-        mLimitSize = (limit_size <= 0) ? Long.MAX_VALUE : limit_size;
-        mLimitSeconds = (limit_seconds <= 0) ? Integer.MAX_VALUE : limit_seconds;
-
         mStatPath = mPathPrefix + ".stat";
         mListPath = mPathPrefix + ".list";
-        removeFilesWithPrefix(path_prefix);
+        mLockPath = mPathPrefix + ".lock";
+        commonProcedure(trunc);
     }
     /**
-     * Constructs a JDvrFile instance.
+     * Constructs a JDvrFile instance for timeshift recording.
      * A JDvrFile object represents a PVR recording which consists of a series of associated files
      * like ts, index, status and list files.
-     * This constructor is preferred to be used to create a normal recording, so is_timeshift
-     * should be false.
      *
      * @param path_prefix The path prefix of a recording. All the associated files use the prefix
      *                    as part of their file path.
-     * @param is_timeshift Indicate whether the recording is a timeshift recording. Normally,
-     *                     timeshift recordings have a restricted recording size or duration.
-     * @throws IOException if the folder part of path_prefix for storing recording files is inaccessible.
+     * @param limit_size Limited recording size in bytes. If recording reaches the limitation,
+     *                   the earliest segment of the recording will be removed to make some room.
+     * @param limit_seconds Limited recording duration in seconds. If recording reaches the limitation,
+     *                   the earliest segment of the recording will be removed to make some room.
+     * @param trunc whether to clean the recording if it already exists.
      */
-    public JDvrFile(String path_prefix, boolean is_timeshift) throws IOException {
-        this(path_prefix,is_timeshift,0,0);
+    public JDvrFile(String path_prefix, long limit_size, int limit_seconds, boolean trunc) {
+        mType = 1;
+        final String dirname = path_prefix.substring(0,path_prefix.lastIndexOf('/'));
+        File dir = new File(dirname);
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw new RuntimeException("Unable to create " + dir.getAbsolutePath());
+        }
+        mLimitSize = (limit_size == 0 ? Long.MAX_VALUE : Math.abs(limit_size));
+        mLimitSeconds = (limit_seconds == 0 ? Integer.MAX_VALUE : Math.abs(limit_seconds));
+        mPathPrefix = path_prefix;
+        mStatPath = mPathPrefix + ".stat";
+        mListPath = mPathPrefix + ".list";
+        mLockPath = mPathPrefix + ".lock";
+        commonProcedure(trunc);
     }
     /**
-     * Check if current recording is a timeshift recording.
-     * @return true if it is a timeshift recording, or false if it is a normal recording.
+     * Constructs a JDvrFile instance for playback.
+     * A JDvrFile object represents a PVR recording which consists of a series of associated files
+     * like ts, index, status and list files.
+     *
+     * @param path_prefix The path prefix of a recording. All the associated files use the prefix
+     *                    as part of their file path.
+     */
+    public JDvrFile(String path_prefix) {
+        mType = 2;
+        final String dirname = path_prefix.substring(0,path_prefix.lastIndexOf('/'));
+        File dir = new File(dirname);
+        if (!dir.exists()) {
+            throw new RuntimeException("Unable to visit " + dir.getAbsolutePath());
+        }
+        mPathPrefix = path_prefix;
+        mStatPath = mPathPrefix + ".stat";
+        mListPath = mPathPrefix + ".list";
+        mLockPath = mPathPrefix + ".lock";
+        if (!createLockIfNotExist(mLockPath)) {
+            throw new RuntimeException("Cannot create .lock file");
+        }
+        try {
+            mLockChannel = new RandomAccessFile(mLockPath, "rw").getChannel();
+            Log.d(TAG,"lock(100-200) for playback");
+            mLock = mLockChannel.tryLock(100, 200, false);
+            if (mLock == null) {
+                throw new RuntimeException("Cannot acquire lock for playback");
+            }
+            if (!load()) {
+                Log.d(TAG,"unlock(100-200) for playback");
+                mLock.release();
+                throw new RuntimeException("Fails to load recording files");
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+    private boolean load() {
+        if (mSegments.size() > 0) {
+            return true;
+        }
+        Log.i(TAG,"loading recording " + mPathPrefix);
+        File listFile = new File(mListPath);
+        if (listFile.exists()) {
+            RandomAccessFile listStream;
+            try {
+                listStream = new RandomAccessFile(listFile, "r");
+            } catch (FileNotFoundException e) {
+                throw new RuntimeException(e);
+            }
+            try {
+                for (String line = listStream.readLine();
+                     line != null;
+                     line = listStream.readLine()) {
+                    String[] tokens = line.split(",");
+                    final int segment_id = Integer.parseInt(tokens[0]);
+                    final long start_time = Long.parseLong(tokens[1]);
+                    final long duration = Long.parseLong(tokens[2]);
+                    JDvrSegment segment = new JDvrSegment(mPathPrefix, segment_id, (mType == 2 ? 1 : 0));
+                    segment.setStartTime(start_time);
+                    segment.setDuration(duration);
+                    mSegments.add(segment);
+                    mLastLoadedSegmentId = segment.id();
+                }
+            } catch (IOException e) {
+                Log.e(TAG, "Exception: " + e);
+                e.printStackTrace();
+                return false;
+            }
+            if (mSegments.size() == 0) {
+                Log.e(TAG,"Fails to load any segment");
+                return false;
+            }
+            mSegmentIdBeingRead = mSegments.get(0).id();
+        }
+        if (mType == 2) {
+            try {
+                final String[] lines = Files.readAllLines(Paths.get(mStatPath)).toArray(new String[0]);
+                for (String line : lines) {
+                    JsonReader reader = new JsonReader(new StringReader(line));
+                    long limitSize = Long.MAX_VALUE;
+                    int limitDuration = Integer.MAX_VALUE;
+                    boolean hit = false;
+                    reader.beginObject();
+                    while (reader.hasNext()) {
+                        String name = reader.nextName();
+                        if (name.equals("limit_size")) {
+                            limitSize = reader.nextLong();
+                            hit = true;
+                        } else if (name.equals("limit_duration")) {
+                            limitDuration = reader.nextInt();
+                            hit = true;
+                        } else {
+                            reader.skipValue();
+                        }
+                    }
+                    reader.endObject();
+                    if (hit) {
+                        mLimitSize = (limitSize > 0 ? limitSize : Long.MAX_VALUE);
+                        mLimitSeconds = (limitDuration > 0 ? limitDuration : Integer.MAX_VALUE);
+                        break;
+                    }
+                }
+            } catch (IOException e) {
+                Log.e(TAG, "Exception: " + e);
+                e.printStackTrace();
+                return false;
+            }
+        }
+        return true;
+    }
+    /**
+     * Check if current recording file is for a timeshift recording/playback.
+     *
+     * @return true if it is for a timeshift recording/playback, or false if it is for a normal recording/playback.
      */
     public boolean isTimeshift() {
-        return mIsTimeshift;
+        final boolean cond1 = isEffectiveLimitSize(mLimitSize);
+        final boolean cond2 = isEffectiveLimitDuration(mLimitSeconds);
+        final boolean cond3 = (mType != 0);
+        return (cond1 || cond2) && cond3;
     }
     /**
      * Get the full ts file path of a specific segment.
@@ -111,12 +250,12 @@ public class JDvrFile {
     /**
      * Add a new segment to the recording. It will be the last one at end of segments list.
      * @return new segment id
-     * @throws IOException if it fails to create any segment file.
      */
-    public int addSegment() throws IOException {
-        final int newID = getLastSegmentID() + 1;
-        JDvrSegment segment = new JDvrSegment(mPathPrefix, newID);
+    public int addSegment() {
+        final int newID = getLastSegmentId() + 1;
+        JDvrSegment segment = new JDvrSegment(mPathPrefix, newID, (mType < 2) ? 0 : 1);
         mSegments.add(segment);
+        Log.i(TAG,"addSegment, id:"+segment.id());
         return newID;
     }
     /**
@@ -125,12 +264,15 @@ public class JDvrFile {
      * @return true if operation is successful, or false if the segment does not exist.
      */
     public boolean removeSegment(int segment_id) {
+        if (mType == 0) { throw new RuntimeException("Cannot do this under Normal Recording situation"); }
         JDvrSegment seg = mSegments.stream().filter(s -> (s.id() == segment_id)).findFirst().orElse(null);
         if (seg == null) {
             return false;
         }
         seg.close();
-        seg.delete();
+        if (mType == 1) {
+            seg.delete();
+        }
         mSegments.remove(seg);
         return true;
     }
@@ -138,14 +280,14 @@ public class JDvrFile {
      * Get first segment id of the recording.
      * @return first segment's segment id, or -1 if there is no segment at all.
      */
-    public int getFirstSegmentID() {
+    public int getFirstSegmentId() {
         return (mSegments.size() > 0) ? mSegments.get(0).id() : -1;
     }
     /**
      * Get last segment id of the recording.
      * @return last segment's segment id, or -1 if there is no segment at all.
      */
-    public int getLastSegmentID() {
+    public int getLastSegmentId() {
         return (mSegments.size() > 0) ? mSegments.get(mSegments.size()-1).id() : -1;
     }
     /**
@@ -160,7 +302,7 @@ public class JDvrFile {
      * @param segment_id the referring segment id.
      * @return the segment id of its following segment, or -1 if the given segment does not exist.
      */
-    public int getNextSegmentID(int segment_id) {
+    public int getNextSegmentId(int segment_id) {
         final JDvrSegment seg = mSegments.stream().filter(s -> (s.id() == segment_id)).findFirst().orElse(null);
         return (seg != null) ? seg.id() + 1 : -1;
     }
@@ -170,6 +312,7 @@ public class JDvrFile {
      * this, start time of a normal recording shall always be 0. Under timeshift situations, as
      * some of its oldest segments have been removed due to size/duration limitation, its start
      * time calculation need to consider all removed segments.
+     *
      * @return the start time of a recording in ms.
      */
     public long getStartTime() {
@@ -181,18 +324,53 @@ public class JDvrFile {
     }
     /**
      * Delete all associated files of a recording including ts/index/status/list.
+     * A recording that is being recorded or played cannot be deleted.
+     *
      * @return true if operation is successful, or false otherwise.
      */
     public boolean delete() {
-        mSegments.forEach(seg -> {
-            seg.close();
-            seg.delete();
-        });
-        File statFile = new File(mStatPath);
-        statFile.delete();
-        File listFile = new File(mListPath);
-        listFile.delete();
-        mSegments.clear();
+        if (mLockChannel != null || mLock != null) {
+            Log.e(TAG,"Cannot delete as JDvrFile seems still in use. Need to call JDvrFile.close.");
+            return false;
+        }
+        return delete(mPathPrefix);
+    }
+    /**
+     * Delete all associated files of a recording including ts/index/status/list.
+     * A recording that is being recorded or played cannot be deleted.
+     * This is the static version of delete() that does not require to be used with associated
+     * JDvrFile object for convenience.
+     *
+     * @param pathPrefix the path prefix of the recording to be removed.
+     * @return true if operation is successful, or false otherwise.
+     */
+    public static boolean delete (String pathPrefix) {
+        final String lockPath = pathPrefix + ".lock";
+        if (!createLockIfNotExist(lockPath)) {
+            Log.e(TAG,"Cannot create .lock file");
+            return false;
+        }
+        try {
+            FileChannel lockChannel = new RandomAccessFile(lockPath, "rw").getChannel();
+            Log.d(TAG,"lock(0-200) for delete");
+            FileLock lock = lockChannel.tryLock(0,200,false);
+            if (lock == null) {
+                return false;
+            }
+            removeAssociatedFiles(pathPrefix);
+            Log.d(TAG,"unlock(0-200) for delete");
+            lock.release();
+            lockChannel.close();
+        } catch (IOException e) {
+            Log.e(TAG, "Exception: " + e);
+            e.printStackTrace();
+            return false;
+        } catch (OverlappingFileLockException e) {
+            Log.w(TAG,"trying to acquire a lock but it has already been held by other");
+            return false;
+        }
+        File lockFile = new File(lockPath);
+        lockFile.delete();
         return true;
     }
     /**
@@ -204,7 +382,6 @@ public class JDvrFile {
         if (mSegments.size() == 0) {
             return 0L;
         }
-        mSegments.get(mSegments.size()-1).flush();
         return mSegments.stream().mapToLong(JDvrSegment::size).sum();
     }
     /**
@@ -219,22 +396,115 @@ public class JDvrFile {
      * Close all segment files including ts/index.
      */
     public void close() {
-        mSegments.forEach(JDvrSegment::close);
+        if (mSegments.size() > 0) {
+            mSegments.forEach(JDvrSegment::close);
+            if (mType<2) {
+                updateListFile();
+            }
+        }
+        try {
+            if (mLock.isValid()) {
+                if (mType == 0) {
+                    Log.d(TAG,"unlock for recording");
+                } else if (mType == 1) {
+                    Log.d(TAG, "unlock for timeshift recording");
+                } else if (mType == 2) {
+                    Log.d(TAG, "unlock for playback");
+                }
+                mLock.release();
+                mLock = null;
+            }
+            if (mLockChannel != null) {
+                mLockChannel.close();
+                mLockChannel = null;
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+    public long getLimitSize() {
+        return mLimitSize;
+    }
+    public int getLimitDuration() {
+        return mLimitSeconds;
+    }
+    /**
+     * Get video PID of the recording.
+     *
+     * @return the PID of video if successful or 0x1fff if failed.
+     */
+    public int getVideoPID() {
+        if (mType < 2) { throw new RuntimeException("Cannot do this under Recording situation"); }
+        JDvrSegment seg = mSegments.stream().filter(s -> (s.id() == mSegmentIdBeingRead)).findFirst().orElse(null);
+        return (seg != null) ? seg.getVideoPid() : 0x1fff;
+    }
+    /**
+     * Get video MIME type of the recording.
+     *
+     * @return the MIME type string of video if successful or null if failed.
+     */
+    public String getVideoMIMEType() {
+        if (mType < 2) { throw new RuntimeException("Cannot do this under Recording situation"); }
+        JDvrSegment seg = mSegments.stream().filter(s -> (s.id() == mSegmentIdBeingRead)).findFirst().orElse(null);
+        return (seg != null) ? seg.getVideoMIMEType() : null;
+    }
+    /**
+     * Get video format of the recording.
+     *
+     * @return the format of video if successful or VIDEO_FORMAT_UNDEFINED if failed.
+     */
+    public int getVideoFormat() {
+        if (mType < 2) { throw new RuntimeException("Cannot do this under Recording situation"); }
+        JDvrSegment seg = mSegments.stream().filter(s -> (s.id() == mSegmentIdBeingRead)).findFirst().orElse(null);
+        return (seg != null) ? seg.getVideoFormat() : JDvrRecorder.JDvrVideoFormat.VIDEO_FORMAT_UNDEFINED;
+    }
+    /**
+     * Get primary audio PID of the recording.
+     *
+     * @return the PID of audio if successful or 0x1fff if failed.
+     */
+    public int getAudioPID() {
+        if (mType < 2) { throw new RuntimeException("Cannot do this under Recording situation"); }
+        JDvrSegment seg = mSegments.stream().filter(s -> (s.id() == mSegmentIdBeingRead)).findFirst().orElse(null);
+        return (seg != null) ? seg.getAudioPID() : 0x1fff;
+    }
+    /**
+     * Get primary audio MIME type of the recording.
+     *
+     * @return the MIME type string of audio if successful or null if failed.
+     */
+    public String getAudioMIMEType() {
+        if (mType < 2) { throw new RuntimeException("Cannot do this under Recording situation"); }
+        JDvrSegment seg = mSegments.stream().filter(s -> (s.id() == mSegmentIdBeingRead)).findFirst().orElse(null);
+        return (seg != null) ? seg.getAudioMIMEType() : null;
+    }
+    /**
+     * Get audio format of the recording.
+     *
+     * @return the format of audio if successful or AUDIO_FORMAT_UNDEFINED if failed.
+     */
+    public int getAudioFormat() {
+        if (mType < 2) { throw new RuntimeException("Cannot do this under Recording situation"); }
+        JDvrSegment seg = mSegments.stream().filter(s -> (s.id() == mSegmentIdBeingRead)).findFirst().orElse(null);
+        return (seg != null) ? seg.getAudioFormat() : JDvrRecorder.JDvrAudioFormat.AUDIO_FORMAT_UNDEFINED;
     }
 
     // Private APIs
-    public int write (byte[] buffer, int offset, int size) throws IOException {
+    public int write (byte[] buffer, int offset, int size, long pts) {
+        if (mType == 2) { throw new RuntimeException("Cannot do this under Playback situation"); }
         final long curTs = SystemClock.elapsedRealtime();
         JDvrSegment lastSegment;
         // 1. Add a segment if necessary
         {
             final boolean cond1 = (mSegments.size() == 0);
             boolean cond2 = false;
+            boolean cond3 = false;
             if (!cond1) {
                 lastSegment = getLastSegment();
                 cond2 = (lastSegment.size() + size > JDvrSegment.getMaxSegmentSize());
+                cond3 = (lastSegment.id() <= mLastLoadedSegmentId);
             }
-            if (cond1 || cond2) {
+            if (cond1 || cond2 || cond3) {
                 addSegment();
                 mTimestampOfLastIndexWrite = curTs;
                 if (cond1) {
@@ -252,7 +522,7 @@ public class JDvrFile {
             final boolean cond4 = (mSegments.size()>1);
             if ((cond1 || cond2) && cond3 && cond4) {
                 mTotalObsoletePausedTime += mSegments.get(0).getPausedTime();
-                removeSegment(getFirstSegmentID());
+                removeSegment(getFirstSegmentId());
             }
         }
         // 3. Update index file if necessary
@@ -268,10 +538,10 @@ public class JDvrFile {
             final boolean cond1 = (lastSegment.size() == 0);
             final boolean cond2 = mPidHasChanged;
             if (cond1 || cond2) {
-                final String streamStr = mStreamArray.stream().map(Object::toString).collect(Collectors.joining(","));
+                final String streamStr = mCurrentRecordingStreams.stream().map(Object::toString).collect(Collectors.joining(","));
                 final String line = String.format(Locale.US,
                         "{\"time\":%d, \"time_offset_from_origin\":%d, \"id\":%d, \"nb_pids\":%d, \"pids\":[%s]}\n",
-                        timeOffsetOfSegment,timeOffsetFromOrigin,lastSegment.id(), mStreamArray.size(),streamStr);
+                        timeOffsetOfSegment,timeOffsetFromOrigin,lastSegment.id(), mCurrentRecordingStreams.size(),streamStr);
                 lastSegment.writeIndex(line.getBytes(),line.length());
                 mPidHasChanged = false;
             }
@@ -279,7 +549,8 @@ public class JDvrFile {
             final boolean cond4 = (curTs - mTimestampOfLastIndexWrite >= mMinIndexInterval);
             if (cond3 && cond4) {
                 final long newFileOffset = lastSegment.size();
-                final String line = String.format(Locale.US,"{\"time\":%d, \"offset\":%d}\n", timeOffsetOfSegment, newFileOffset);
+                final String line = String.format(Locale.US,"{\"time\":%d, \"offset\":%d, \"pts\":%d}\n",
+                        timeOffsetOfSegment, newFileOffset, pts);
                 lastSegment.writeIndex(line.getBytes(), line.length());
                 mTimestampOfLastIndexWrite = curTs;
                 updateStatFile();
@@ -295,11 +566,105 @@ public class JDvrFile {
         }
         return ret;
     }
+    public int read(byte[] buffer, int offset, int size) {
+        if (mType < 2) { throw new RuntimeException("Cannot do this under Recording situation"); }
+        JDvrSegment seg = mSegments.stream().filter(s -> (s.id() == mSegmentIdBeingRead)).findFirst().orElse(null);
+        if (seg == null) {
+            return 0;
+        }
+        int n;
+        try {
+            n = seg.read(buffer,offset,size);
+        } catch (IOException e) {
+            Log.e(TAG, "Exception: " + e);
+            e.printStackTrace();
+            return 0;
+        }
+        if (n == -1) { // In case current segment has reached end
+            final int nextSegmentId = mSegmentIdBeingRead + 1;
+            seg = mSegments.stream().filter(s -> (s.id() == nextSegmentId)).findFirst().orElse(null);
+            if (seg != null) {
+                mSegmentIdBeingRead += 1;
+                String line =  String.format(Locale.US,"reading segment transition in playback: %04d => %04d",
+                        mSegmentIdBeingRead-1, mSegmentIdBeingRead);
+                Log.d(TAG,line);
+                seg.seek(0L);
+                try {
+                    n = seg.read(buffer,offset,size);
+                } catch (IOException e) {
+                    Log.e(TAG, "Exception: " + e);
+                    e.printStackTrace();
+                    return 0;
+                }
+            }
+        }
+        return n;
+    }
+    public boolean seek(int ms) {
+        if (mType < 2) { throw new RuntimeException("Cannot do this under Recording situation"); }
+        JDvrSegment ref = new JDvrSegment("",-1, 2);
+        ref.setStartTime(ms);
+        int i = Collections.binarySearch(mSegments,ref,mStartTimeCmp);
+        if (i >= mSegments.size()) {
+            Log.w(TAG,"seek: input ms "+ms+" is invalid");
+            return false;
+        } else if (i < 0) {
+            i = -(i+2);
+            if (i == -1) {
+                i=0;
+            }
+        }
+        JDvrSegment segment = mSegments.get(i);
+        final long timeOffset = ms - segment.getStartTime();
+        if (timeOffset < 0) {
+            Log.w(TAG,"seek: timeOffset "+timeOffset+" is invalid");
+            return false;
+        }
+        final long offset = segment.getOffsetOf(timeOffset);
+        mSegments.forEach(seg -> seg.seek(0));
+        segment.seek(offset);
+        mSegmentIdBeingRead = segment.id();
+        mPlayingTime = ms;
+        mInTransition = 4;
+        final Long pts = segment.getPtsOf(timeOffset);
+        if (pts != null) {
+            updateLastPts(pts, true);
+        }
+        Log.i(TAG,"JDvrFile.seek to ms:"+ms+" (seg#"+i+" + "+timeOffset+"ms)");
+        return true;
+    }
     public JDvrSegment getFirstSegment() {
         return (mSegments.size() > 0) ? mSegments.get(0) : null;
     }
     public JDvrSegment getLastSegment() {
         return (mSegments.size() > 0) ? mSegments.get(mSegments.size()-1) : null;
+    }
+    public int getSegmentIdBeingRead() {
+        if (mType < 2) { throw new RuntimeException("Cannot do this under Recording situation"); }
+        return mSegmentIdBeingRead;
+    }
+    public long getPlayingTime() {
+        if (mType < 2) { throw new RuntimeException("Cannot do this under Recording situation"); }
+        int segmentId = timeOffsetToSegmentId(mPlayingTime);
+        if (segmentId == -1) {
+            Log.e(TAG,"Cannot get segment id for time "+mPlayingTime);
+            return 0L;
+        }
+        final long segmentTimeOffset = mPlayingTime - mSegments.get(segmentId).getStartTime();
+        // Search pts in current index file.
+        Long newSegmentPlayingTime = mSegments.get(segmentId).findPtsFrom(mLastPts,segmentTimeOffset);
+        if (newSegmentPlayingTime == null && mSegments.get(mSegments.size()-1).id() > segmentId) {
+            // Continue to search pts in next index file.
+            segmentId += 1;
+            newSegmentPlayingTime = mSegments.get(segmentId).findPtsFrom(mLastPts,0L);
+        }
+        if (newSegmentPlayingTime != null) {
+            mPlayingTime = mSegments.get(segmentId).getStartTime() + newSegmentPlayingTime;
+        } else {
+            Log.w(TAG,"Cannot find out matching index for pts "+mLastPts+" in segment:"
+                    +(segmentId-1)+" starting from offset:"+segmentTimeOffset+"ms and segment:"+segmentId);
+        }
+        return (newSegmentPlayingTime != null) ? mPlayingTime : 0L;
     }
 
     /**
@@ -309,22 +674,26 @@ public class JDvrFile {
      * @return true if it is aware of some differences and updates its own stream array based on
      * the input one, or false if it fails to find out any stream change.
      */
-    public boolean updateRecordingStreams(ArrayList<JDvrRecorder.JDvrStreamInfo> newStreamArray) {
-        Comparator<JDvrRecorder.JDvrStreamInfo> streamInfoCmp = Comparator.comparingInt(info -> info.pid);
-        mStreamArray.sort(streamInfoCmp);
+    public boolean updateRecordingStreams(ArrayList<JDvrStreamInfo> newStreamArray) {
+        if (mType == 2) { throw new RuntimeException("Cannot do this under Playback situation"); }
+        Comparator<JDvrStreamInfo> streamInfoCmp = Comparator.comparingInt(info -> info.pid);
+        mCurrentRecordingStreams.sort(streamInfoCmp);
         newStreamArray.sort(streamInfoCmp);
-        if (mStreamArray.equals(newStreamArray)) {
+        if (mCurrentRecordingStreams.equals(newStreamArray)) {
             return false;
         }
-        mStreamArray = newStreamArray.stream().distinct().collect(Collectors.toCollection(ArrayList::new));
+        mCurrentRecordingStreams = newStreamArray.stream().distinct().collect(Collectors.toCollection(ArrayList::new));
         mPidHasChanged = true;
         return true;
     }
     private boolean updateStatFile() {
+        if (mType == 2) { throw new RuntimeException("Cannot do this under Playback situation"); }
         final long total_size = size();
         final String statContent = String.format(Locale.US,
-                "{\"size\":%d, \"duration\":%d, \"packets\":%d, \"first_segment_id\":%d, \"last_segment_id\":%d}\n",
-                total_size,duration(),total_size/188, getFirstSegmentID(), getLastSegmentID());
+                "{\"size\":%d, \"duration\":%d, \"packets\":%d, \"first_segment_id\":%d, \"last_segment_id\":%d, \"limit_size\":%d, \"limit_duration\":%d}\n",
+                total_size,duration(),total_size/188, getFirstSegmentId(), getLastSegmentId(),
+                (mLimitSize == Long.MAX_VALUE ? 0 : Math.abs(mLimitSize)),
+                (mLimitSeconds == Integer.MAX_VALUE ? 0 : Math.abs(mLimitSeconds)));
         try {
             FileOutputStream statStream = new FileOutputStream(mStatPath, false);
             statStream.write(statContent.getBytes(),0,statContent.length());
@@ -337,6 +706,7 @@ public class JDvrFile {
         return true;
     }
     public boolean updateListFile() {
+        if (mType == 2) { throw new RuntimeException("Cannot do this under Playback situation"); }
         try {
             FileOutputStream listStream = new FileOutputStream(mListPath, false);
             mSegments.forEach(seg -> {
@@ -356,9 +726,24 @@ public class JDvrFile {
         }
         return true;
     }
+    public static boolean isEffectiveLimitSize(long size) {
+        return (size > 0L && size != Long.MAX_VALUE);
+    }
+    public static boolean isEffectiveLimitDuration(long duration) {
+        return (duration > 0L && duration != Integer.MAX_VALUE);
+    }
+    public void updateLastPts(long pts, boolean force) {
+        if (force) {
+            mLastPts = pts;
+        } else if (mInTransition == 0) {
+            mLastPts = pts;
+        } else if (mInTransition > 0) {
+            mInTransition--;
+        }
+    }
 
     // Private functions
-    private int removeFilesWithPrefix(final String pathPrefix) {
+    private static int removeAssociatedFiles(String pathPrefix) {
         final String dirName = pathPrefix.substring(0,pathPrefix.lastIndexOf('/'));
         File dir = new File(dirName);
         if (!dir.exists()) {
@@ -381,5 +766,59 @@ public class JDvrFile {
             }
         }
         return ret;
+    }
+    private static boolean createLockIfNotExist(String path) {
+        File lockFile = new File(path);
+        if (!lockFile.exists()) {
+            try {
+                lockFile.createNewFile();
+            } catch (IOException e) {
+                Log.e(TAG, "Exception: " + e);
+                e.printStackTrace();
+                return false;
+            }
+        }
+        return true;
+    }
+    private void commonProcedure(boolean trunc) {
+        if (!createLockIfNotExist(mLockPath)) {
+            throw new RuntimeException("Cannot create .lock file");
+        }
+        try {
+            mLockChannel = new RandomAccessFile(mLockPath, "rw").getChannel();
+            if (trunc) {
+                Log.d(TAG,"lock(0-200) for trunc");
+                mLock = mLockChannel.tryLock(0,200,false);
+                if (mLock != null) {
+                    removeAssociatedFiles(mPathPrefix);
+                    Log.d(TAG, "unlock(0-200) for trunc");
+                    mLock.release();
+                } else {
+                    throw new RuntimeException("Cannot acquire lock for trunc");
+                }
+            }
+            Log.d(TAG,"lock(0-100) for recording");
+            mLock = mLockChannel.tryLock(0, 100, false);
+            if (mLock == null) {
+                throw new RuntimeException("Cannot acquire lock for recording");
+            }
+            if (!load()) {
+                Log.d(TAG,"unlock(0-100) for recording");
+                mLock.release();
+                throw new RuntimeException("Fails to load recording files");
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+    private int timeOffsetToSegmentId(long timeOffset) {
+        long sum = 0;
+        for (int i=0; i<mSegments.size(); i++) {
+            sum += mSegments.get(i).duration();
+            if (sum >= timeOffset) {
+                return i;
+            }
+        }
+        return -1;
     }
 }

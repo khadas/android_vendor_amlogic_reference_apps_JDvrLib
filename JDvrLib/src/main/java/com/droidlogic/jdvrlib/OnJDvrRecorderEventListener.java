@@ -3,7 +3,6 @@ package com.droidlogic.jdvrlib;
 import android.os.Message;
 
 public interface OnJDvrRecorderEventListener {
-    // Enum
     static public class JDvrRecorderEvent {
         public final static int NOTIFY_PROGRESS = 2001;
         public final static int NOTIFY_INITIAL_STATE = 3001;

@@ -1,3 +1,37 @@
 <resources>
     <string name="app_name">JDvrLibTest</string>
+    <string name="button1_name">Start Tuning</string>
+    <string name="button2_name">Stop Tuning</string>
+    <string name="button3_name">Start Recording</string>
+    <string name="button4_name">Stop Recording</string>
+    <string name="button5_name">Add Streams1</string>
+    <string name="button6_name">Add Streams2</string>
+    <string name="button7_name">Remove Streams1</string>
+    <string name="button8_name">Prepare Recorder</string>
+    <string name="button9_name">Remove Streams2</string>
+    <string name="button10_name">Pause Recording</string>
+    <string name="button11_name">Prepare TSH Recorder</string>
+    <string name="button12_name">Create Player</string>
+    <string name="button13_name">Play</string>
+    <string name="button14_name">Stop</string>
+    <string name="button15_name">Pause</string>
+    <string name="button16_name">-30s</string>
+    <string name="button17_name">+30s</string>
+    <string name="button18_name">JNI Prepare Recorder</string>
+    <string name="button19_name">JNI Add Stream</string>
+    <string name="button20_name">JNI Start Recording</string>
+    <string name="button21_name">JNI Pause Recording</string>
+    <string name="button22_name">JNI Stop Recording</string>
+    <string name="button23_name">JNI Remove Stream</string>
+    <string name="button26_name">JNI Prepare TSH Recorder</string>
+    <string name="button27_name">JNI Create Player</string>
+    <string name="button28_name">JNI Play</string>
+    <string name="button29_name">JNI Pause</string>
+    <string name="button30_name">JNI Stop</string>
+    <string name="button31_name">JNI -30s</string>
+    <string name="button32_name">JNI +30s</string>
+    <string name="button33_name">Delete</string>
+    <string name="button34_name">JNI Delete</string>
+    <string name="recording_number">0</string>
+    <string name="recording_number2">0</string>
 </resources>
