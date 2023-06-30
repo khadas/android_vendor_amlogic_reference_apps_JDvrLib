@@ -153,6 +153,25 @@ AmDvr_File_duration(
 }
 
 am_dvr_result
+AmDvr_File_size(
+        am_dvr_file_handle handle,
+        int64_t* psize)
+{
+    auto it = find(vecDvrFiles.begin(),vecDvrFiles.end(),handle);
+    if (it == vecDvrFiles.end()) {
+        ALOGE("%s, given handle %p is invalid",__func__,handle);
+        return JDVRLIB_JNI_ERR;
+    }
+    if (psize == nullptr) {
+        ALOGE("%s, given long pointer %p is invalid",__func__,psize);
+        return JDVRLIB_JNI_ERR;
+    }
+    JDvrFile* p = (JDvrFile*)*it;
+    *psize = p->size();
+    return JDVRLIB_JNI_OK;
+}
+
+am_dvr_result
 AmDvr_File_getPlayingTime(
         am_dvr_file_handle handle,
         int64_t* ptime)
@@ -462,8 +481,8 @@ AmDvr_Recorder_start (
         return JDVRLIB_JNI_ERR;
     }
     JDvrRecorder* p = (JDvrRecorder*)*it;
-    int ret = p->start();
-    return (ret == 0) ? JDVRLIB_JNI_OK : JDVRLIB_JNI_ERR;
+    bool ret = p->start();
+    return ret ? JDVRLIB_JNI_OK : JDVRLIB_JNI_ERR;
 }
 
 am_dvr_result
@@ -477,8 +496,8 @@ AmDvr_Recorder_pause (
         return JDVRLIB_JNI_ERR;
     }
     JDvrRecorder* p = (JDvrRecorder*)*it;
-    int ret = p->pause();
-    return (ret == 0) ? JDVRLIB_JNI_OK : JDVRLIB_JNI_ERR;
+    bool ret = p->pause();
+    return ret ? JDVRLIB_JNI_OK : JDVRLIB_JNI_ERR;
 }
 
 am_dvr_result

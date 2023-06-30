@@ -132,6 +132,13 @@ public class MainActivity extends AppCompatActivity {
             public void surfaceDestroyed(@NonNull SurfaceHolder holder) {
             }
         });
+        addToLogView("NOTE1: please use the settings below at headend side");
+        addToLogView("    Modulation:  DVBC,  64 QAM");
+        addToLogView("    Stream:  BBC MUX UH.ts");
+        addToLogView("    Frequency:  666MHz");
+        addToLogView("    Symbol rate:  6,875,000");
+        addToLogView("NOTE2: \"8888\" denotes timeshift. To operate on timeshift, please input \"8888\" in \"Rec id:\"");
+        addToLogView("======================================================");
     }
     @Override
     protected void onDestroy() {

@@ -16,6 +16,7 @@ struct jdvr_file_t {
     jmethodID constructor3MID;
     jmethodID isTimeshiftMID;
     jmethodID durationMID;
+    jmethodID sizeMID;
     jmethodID getPlayingTimeMID;
     jmethodID getStartTimeMID;
     jmethodID getSegmentIdBeingReadMID;
@@ -126,14 +127,6 @@ jint JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
 
     AmDvr_registerJNI(env);
 
-    registerNativeMethods(env,
-            "com/droidlogic/jdvrlib/JNIJDvrRecorderListener",
-            gJniJDvrRecorderListenerMethods, 1);
-
-    registerNativeMethods(env,
-            "com/droidlogic/jdvrlib/JNIJDvrPlayerListener",
-            gJniJDvrPlayerListenerMethods, 1);
-
     Loader::setJavaVM(vm);
 
     return JNI_VERSION_1_4;
@@ -146,9 +139,15 @@ void Loader::setJavaVM(JavaVM* javaVM) {
 
 /** return a pointer to the JNIEnv for this thread */
 JNIEnv* Loader::getJNIEnv() {
-    assert(mJavaVM != nullptr);
+    if (mJavaVM == nullptr)
+    {
+        ALOGE("%s, java vm is null",__func__);
+        return nullptr;
+    }
     JNIEnv* env;
-    if (mJavaVM->GetEnv((void**) &env, JNI_VERSION_1_4) != JNI_OK) {
+    int ret = mJavaVM->GetEnv((void**) &env, JNI_VERSION_1_4);
+    if (ret != JNI_OK) {
+        ALOGE("%s, fail to get JNIEnv*, ret:%d",__func__,ret);
         return nullptr;
     }
     return env;
@@ -193,6 +192,7 @@ bool Loader::initJDvrLibJNI(JNIEnv *jniEnv) {
     gJDvrFileCtx.constructor3MID = GetMethodIDOrDie(env, gJDvrFileCls, "<init>", "(Ljava/lang/String;)V");
     gJDvrFileCtx.isTimeshiftMID = GetMethodIDOrDie(env, gJDvrFileCls, "isTimeshift", "()Z");
     gJDvrFileCtx.durationMID = GetMethodIDOrDie(env, gJDvrFileCls, "duration", "()J");
+    gJDvrFileCtx.sizeMID = GetMethodIDOrDie(env, gJDvrFileCls, "size", "()J");
     gJDvrFileCtx.getPlayingTimeMID = GetMethodIDOrDie(env, gJDvrFileCls, "getPlayingTime", "()J");
     gJDvrFileCtx.getStartTimeMID = GetMethodIDOrDie(env, gJDvrFileCls, "getStartTime", "()J");
     gJDvrFileCtx.getSegmentIdBeingReadMID = GetMethodIDOrDie(env, gJDvrFileCls, "getSegmentIdBeingRead", "()I");
@@ -277,6 +277,14 @@ bool Loader::initJDvrLibJNI(JNIEnv *jniEnv) {
     gPlaybackProgressCtx.lastSegmentIdField = GetFieldIDOrDie(env, gPlaybackProgressCls, "lastSegmentId", "I");
     gPlaybackProgressCtx.numberOfSegmentsField = GetFieldIDOrDie(env, gPlaybackProgressCls, "numberOfSegments", "I");
 
+    registerNativeMethods(env,
+            "com/droidlogic/jdvrlib/JNIJDvrRecorderListener",
+            gJniJDvrRecorderListenerMethods, 1);
+
+    registerNativeMethods(env,
+            "com/droidlogic/jdvrlib/JNIJDvrPlayerListener",
+            gJniJDvrPlayerListenerMethods, 1);
+
     gJniInit = true;
     return true;
 }
@@ -288,14 +296,17 @@ JNIEnv *Loader::getOrAttachJNIEnvironment() {
             return nullptr;
         }
 
-        ALOGV("%d attach current thread to jvm", gettid());
+        ALOGD("Attach current thread to jvm");
         int result = mJavaVM->AttachCurrentThread(&env, nullptr);
         if (result != JNI_OK) {
             ALOGE("thread attach failed");
         }
         struct VmDetacher {
             VmDetacher(JavaVM *vm) : mVm(vm) {}
-            ~VmDetacher() { ALOGV("%d detach current thread to jvm", gettid()); mVm->DetachCurrentThread(); }
+            ~VmDetacher() {
+                ALOGD("detach current thread to jvm");
+                mVm->DetachCurrentThread();
+            }
 
             private:
             JavaVM *const mVm;
@@ -307,8 +318,9 @@ JNIEnv *Loader::getOrAttachJNIEnvironment() {
 
 // JDvrFile
 JDvrFile::JDvrFile(jstring path_prefix, jboolean trunc)
+    : mEnv(NULL), mJavaJDvrFile(NULL)
 {
-    ALOGD("%s, enter",__PRETTY_FUNCTION__);
+    ALOGD("%s",__PRETTY_FUNCTION__);
     mEnv = Loader::getOrAttachJNIEnvironment();
     if (mEnv == nullptr) {
         ALOGE("Failed to get JNIEnv");
@@ -316,12 +328,15 @@ JDvrFile::JDvrFile(jstring path_prefix, jboolean trunc)
     }
     jobject file = mEnv->NewObject(gJDvrFileCls, gJDvrFileCtx.constructor1MID,
             path_prefix, trunc);
-    mJavaJDvrFile = MakeGlobalRefOrDie(mEnv, file);
+    if (file != NULL) {
+        mJavaJDvrFile = MakeGlobalRefOrDie(mEnv, file);
+    }
 }
 
 JDvrFile::JDvrFile(jstring path_prefix, jlong limit_size, jint limit_seconds,jboolean trunc)
+    : mEnv(NULL), mJavaJDvrFile(NULL)
 {
-    ALOGD("%s, enter",__PRETTY_FUNCTION__);
+    ALOGD("%s",__PRETTY_FUNCTION__);
     mEnv = Loader::getOrAttachJNIEnvironment();
     if (mEnv == nullptr) {
         ALOGE("Failed to get JNIEnv");
@@ -329,21 +344,28 @@ JDvrFile::JDvrFile(jstring path_prefix, jlong limit_size, jint limit_seconds,jbo
     }
     jobject file = mEnv->NewObject(gJDvrFileCls, gJDvrFileCtx.constructor2MID,
             path_prefix, limit_size, limit_seconds, trunc);
-    mJavaJDvrFile = MakeGlobalRefOrDie(mEnv, file);
+    if (file != NULL) {
+        mJavaJDvrFile = MakeGlobalRefOrDie(mEnv, file);
+    }
 }
 
-JDvrFile::JDvrFile(jstring path_prefix) {
-    ALOGD("%s, enter",__PRETTY_FUNCTION__);
+JDvrFile::JDvrFile(jstring path_prefix)
+    : mEnv(NULL), mJavaJDvrFile(NULL)
+{
+    ALOGD("%s",__PRETTY_FUNCTION__);
     mEnv = Loader::getOrAttachJNIEnvironment();
     if (mEnv == nullptr) {
         ALOGE("Failed to get JNIEnv");
         return;
     }
     jobject file = mEnv->NewObject(gJDvrFileCls, gJDvrFileCtx.constructor3MID, path_prefix);
-    mJavaJDvrFile = MakeGlobalRefOrDie(mEnv, file);
+    if (file != NULL) {
+        mJavaJDvrFile = MakeGlobalRefOrDie(mEnv, file);
+    }
 }
 
 JDvrFile::~JDvrFile() {
+    ALOGD("%s",__PRETTY_FUNCTION__);
     mEnv->DeleteGlobalRef(mJavaJDvrFile);
     mJavaJDvrFile = NULL;
 }
@@ -356,7 +378,20 @@ bool JDvrFile::isTimeshift() {
 
 long JDvrFile::duration()
 {
+    if (mJavaJDvrFile == NULL) {
+        return 0L;
+    }
     jlong result = mEnv->CallLongMethod(mJavaJDvrFile, gJDvrFileCtx.durationMID);
+    //ALOGD("%s, returns %d",__func__,(long)result);
+    return (long)result;
+}
+
+long JDvrFile::size()
+{
+    if (mJavaJDvrFile == NULL) {
+        return 0L;
+    }
+    jlong result = mEnv->CallLongMethod(mJavaJDvrFile, gJDvrFileCtx.sizeMID);
     //ALOGD("%s, returns %d",__func__,(long)result);
     return (long)result;
 }

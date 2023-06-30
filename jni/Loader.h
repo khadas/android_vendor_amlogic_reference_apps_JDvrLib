@@ -42,6 +42,7 @@ public:
 
     bool isTimeshift();
     long duration();
+    long size();
     long getPlayingTime();
     long getStartTime();
     int getSegmentIdBeingRead();

@@ -243,14 +243,24 @@ public class JDvrPlayer {
             } else if (playbackEvent instanceof TsPlaybackListener.AudioFirstFrameEvent) {
                 mPlaybackHandler.postAtFrontOfQueue(() -> mSession.mFirstAudioFrameReceived = true);
             } else if (playbackEvent instanceof TsPlaybackListener.PtsEvent) {
-                mPlaybackHandler.post(() -> {
-                    // Here the mPts from ASPlayer is in microsecond (us)
-                    mLastPts = ((PtsEvent) playbackEvent).mPts*90/1000;
+                if (count++%8 == 0) { // Ignore 7/8 PTS events
+                    mLastPts = ((PtsEvent) playbackEvent).mPts * 90 / 1000;     // Original PTS in 90KHz
                     if (mLastPts > 0) {
-                        mJDvrFile.updateLastPts(mLastPts,false);
+                        if (mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
+                            mPlaybackHandler.removeCallbacks(mPtsRunnable);
+                        }
+                        mPlaybackHandler.post(mPtsRunnable);
                     }
-                });
+                }
             }
+        }
+        private long count = 0;
+    };
+    private final Runnable mPtsRunnable = new Runnable() {
+        @Override
+        public void run() {
+            // Here the mPts from ASPlayer is in microsecond (us)
+            mJDvrFile.updateLastPts(mLastPts);
         }
     };
 
@@ -545,6 +555,10 @@ public class JDvrPlayer {
             mASPlayer.flush();
             mJDvrFile.seek(mSession.mTargetSeekPos*1000);
             mSession.mTargetSeekPos = null;
+            // Clear outdated PTS events cached in the queue prior to seek.
+            if (mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
+                mPlaybackHandler.removeCallbacks(mPtsRunnable);
+            }
         }
         if (cond6) {
             speedTransition();
@@ -585,13 +599,17 @@ public class JDvrPlayer {
             speedTransition();
         }
         if (cond4) {
-            mJDvrFile.seek(mSession.mTargetSeekPos*1000);
             Log.d(TAG,"calling ASPlayer.flushDvr/flush at "+getCallerInfo(3));
             mASPlayer.flushDvr();
             mASPlayer.flush();
+            mJDvrFile.seek(mSession.mTargetSeekPos*1000);
             mLastTrickModeTimestamp = curTs;
             mLastTrickModeTimeOffset = mSession.mTargetSeekPos*1000;
             mSession.mTargetSeekPos = null;
+            // Clear outdated PTS events cached in the queue prior to seek.
+            if (mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
+                mPlaybackHandler.removeCallbacks(mPtsRunnable);
+            }
         }
         if (cond5) {
             speedTransition();
@@ -610,9 +628,13 @@ public class JDvrPlayer {
             long newOffset = (int) (mLastTrickModeTimeOffset + mSession.mTargetSpeed * 1000);
             newOffset = Math.min(newOffset,mJDvrFile.getStartTime()+mJDvrFile.duration());
             newOffset = Math.max(newOffset,mJDvrFile.getStartTime());
-            mJDvrFile.seek((int)newOffset);
             mASPlayer.flushDvr();
             mASPlayer.flush();
+            mJDvrFile.seek((int)newOffset);
+            // Clear outdated PTS events cached in the queue prior to seek.
+            if (mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
+                mPlaybackHandler.removeCallbacks(mPtsRunnable);
+            }
             if (!mSession.mTrickModeBySeekIsOn) {
                 Log.d(TAG, "calling ASPlayer.setTrickMode(BY_SEEK) at " + getCallerInfo(3));
                 mASPlayer.setTrickMode(VideoTrickMode.TRICK_MODE_BY_SEEK);
@@ -660,12 +682,16 @@ public class JDvrPlayer {
         } else if (cond3) {
             speedTransition();
         } else if (cond5) {
-            mJDvrFile.seek(mSession.mTargetSeekPos*1000);
             Log.d(TAG,"calling ASPlayer.flushDvr/flush at "+getCallerInfo(3));
             mASPlayer.flushDvr();
             mASPlayer.flush();
+            mJDvrFile.seek(mSession.mTargetSeekPos*1000);
             mSession.mFirstVideoFrameReceived = false;
             mSession.mTargetSeekPos = null;
+            // Clear outdated PTS events cached in the queue prior to seek.
+            if (mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
+                mPlaybackHandler.removeCallbacks(mPtsRunnable);
+            }
         } else if (cond6) {
             Log.d(TAG,"calling ASPlayer.pauseVideoDecoding at "+getCallerInfo(3));
             mASPlayer.pauseVideoDecoding();

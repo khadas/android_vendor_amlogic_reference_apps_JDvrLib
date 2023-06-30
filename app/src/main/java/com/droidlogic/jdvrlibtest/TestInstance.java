@@ -292,6 +292,7 @@ public class TestInstance implements OnTuneEventListener,
             Log.e(TAG, "addStream1, JDvrRecorder is invalid");
             return;
         }
+        // BBC MUX UH.ts
         mJDvrRecorder.addStream(0, JDvrStreamType.STREAM_TYPE_OTHER, 0);
         mJDvrRecorder.addStream(600, JDvrStreamType.STREAM_TYPE_VIDEO,JDvrVideoFormat.VIDEO_FORMAT_MPEG2);
         mJDvrRecorder.addStream(601, JDvrStreamType.STREAM_TYPE_AUDIO, JDvrAudioFormat.AUDIO_FORMAT_MPEG);
@@ -303,17 +304,58 @@ public class TestInstance implements OnTuneEventListener,
             Log.e(TAG, "addStream2, JDvrRecorder is invalid");
             return;
         }
+        // BBC MUX UH.ts
         mJDvrRecorder.addStream(0, JDvrStreamType.STREAM_TYPE_OTHER, 0);
         mJDvrRecorder.addStream(610, JDvrStreamType.STREAM_TYPE_VIDEO,JDvrVideoFormat.VIDEO_FORMAT_MPEG2);
         mJDvrRecorder.addStream(611, JDvrStreamType.STREAM_TYPE_AUDIO, JDvrAudioFormat.AUDIO_FORMAT_MPEG);
         mJDvrRecorder.addStream(612, JDvrStreamType.STREAM_TYPE_AUDIO, JDvrAudioFormat.AUDIO_FORMAT_MPEG);
         mJDvrRecorder.addStream(4225, JDvrStreamType.STREAM_TYPE_OTHER,0);
     }
+    private void addStreams3() {
+        if (mJDvrRecorder == null) {
+            Log.e(TAG, "addStream3, JDvrRecorder is invalid");
+            return;
+        }
+        // TRT 4K_2019102211412302.ts
+        mJDvrRecorder.addStream(0, JDvrStreamType.STREAM_TYPE_OTHER, 0);
+        mJDvrRecorder.addStream(1, JDvrStreamType.STREAM_TYPE_OTHER, 0);
+        mJDvrRecorder.addStream(17, JDvrStreamType.STREAM_TYPE_OTHER, 0);
+        mJDvrRecorder.addStream(4755, JDvrStreamType.STREAM_TYPE_OTHER,0);
+        mJDvrRecorder.addStream(4855, JDvrStreamType.STREAM_TYPE_VIDEO,JDvrVideoFormat.VIDEO_FORMAT_HEVC);
+        mJDvrRecorder.addStream(4955, JDvrStreamType.STREAM_TYPE_AUDIO, JDvrAudioFormat.AUDIO_FORMAT_EAC3);
+        mJDvrRecorder.addStream(5055, JDvrStreamType.STREAM_TYPE_AUDIO, JDvrAudioFormat.AUDIO_FORMAT_AAC);
+    }
+    private void addStreams4() {
+        if (mJDvrRecorder == null) {
+            Log.e(TAG, "addStream4, JDvrRecorder is invalid");
+            return;
+        }
+        // gr1.ts
+        mJDvrRecorder.addStream(0, JDvrStreamType.STREAM_TYPE_OTHER, 0);
+        mJDvrRecorder.addStream(273, JDvrStreamType.STREAM_TYPE_OTHER, 0);
+        mJDvrRecorder.addStream(220, JDvrStreamType.STREAM_TYPE_VIDEO,JDvrVideoFormat.VIDEO_FORMAT_H264);
+        mJDvrRecorder.addStream(230, JDvrStreamType.STREAM_TYPE_AUDIO, JDvrAudioFormat.AUDIO_FORMAT_MPEG);
+        mJDvrRecorder.addStream(231, JDvrStreamType.STREAM_TYPE_AUDIO, JDvrAudioFormat.AUDIO_FORMAT_MPEG);
+        mJDvrRecorder.addStream(232, JDvrStreamType.STREAM_TYPE_AUDIO, JDvrAudioFormat.AUDIO_FORMAT_MPEG);
+        mJDvrRecorder.addStream(240, JDvrStreamType.STREAM_TYPE_SUBTITLE, 0);
+        mJDvrRecorder.addStream(242, JDvrStreamType.STREAM_TYPE_SUBTITLE, 0);
+    }
+    private void addStreams5() {
+        if (mJDvrRecorder == null) {
+            Log.e(TAG, "addStream5, JDvrRecorder is invalid");
+            return;
+        }
+        // bbc_TV&Radio.ts
+        mJDvrRecorder.addStream(0, JDvrStreamType.STREAM_TYPE_OTHER, 0);
+        mJDvrRecorder.addStream(4543, JDvrStreamType.STREAM_TYPE_OTHER, 0);
+        mJDvrRecorder.addStream(660, JDvrStreamType.STREAM_TYPE_AUDIO, JDvrAudioFormat.AUDIO_FORMAT_MPEG);
+    }
     private void removeStreams1() {
         if (mJDvrRecorder == null) {
             Log.e(TAG, "removeStreams1, JDvrRecorder is invalid");
             return;
         }
+        // BBC MUX UH.ts
         mJDvrRecorder.removeStream(0);
         mJDvrRecorder.removeStream(600);
         mJDvrRecorder.removeStream(601);
@@ -325,11 +367,51 @@ public class TestInstance implements OnTuneEventListener,
             Log.e(TAG, "removeStreams2, JDvrRecorder is invalid");
             return;
         }
+        // BBC MUX UH.ts
         mJDvrRecorder.removeStream(0);
         mJDvrRecorder.removeStream(610);
         mJDvrRecorder.removeStream(611);
         mJDvrRecorder.removeStream(612);
         mJDvrRecorder.removeStream(4225);
+    }
+    private void removeStreams3() {
+        if (mJDvrRecorder == null) {
+            Log.e(TAG, "removeStreams3, JDvrRecorder is invalid");
+            return;
+        }
+        // TRT 4K_2019102211412302.ts
+        mJDvrRecorder.removeStream(0);
+        mJDvrRecorder.removeStream(1);
+        mJDvrRecorder.removeStream(17);
+        mJDvrRecorder.removeStream(4755);
+        mJDvrRecorder.removeStream(4855);
+        mJDvrRecorder.removeStream(4955);
+        mJDvrRecorder.removeStream(5055);
+    }
+    private void removeStreams4() {
+        if (mJDvrRecorder == null) {
+            Log.e(TAG, "removeStreams4, JDvrRecorder is invalid");
+            return;
+        }
+        // gr1.ts
+        mJDvrRecorder.removeStream(0);
+        mJDvrRecorder.removeStream(273);
+        mJDvrRecorder.removeStream(220);
+        mJDvrRecorder.removeStream(230);
+        mJDvrRecorder.removeStream(231);
+        mJDvrRecorder.removeStream(232);
+        mJDvrRecorder.removeStream(240);
+        mJDvrRecorder.removeStream(242);
+    }
+    private void removeStreams5() {
+        if (mJDvrRecorder == null) {
+            Log.e(TAG, "removeStreams5, JDvrRecorder is invalid");
+            return;
+        }
+        // bbc_TV&Radio.ts
+        mJDvrRecorder.removeStream(0);
+        mJDvrRecorder.removeStream(4543);
+        mJDvrRecorder.removeStream(660);
     }
     private void prepareRecorder() {
         int index = determineRecordingIndex(mFolder);

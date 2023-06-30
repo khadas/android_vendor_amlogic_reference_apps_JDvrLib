@@ -21,8 +21,10 @@ import android.util.Log;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Executor;
+import java.util.stream.Collectors;
 
 import com.droidlogic.jdvrlib.OnJDvrRecorderEventListener.JDvrRecorderEvent;
 
@@ -84,8 +86,7 @@ public class JDvrRecorder {
         private boolean mDiskFull = false;
         private boolean mHaveSentDiskFullNotify = false;
         private final ArrayList<JDvrStreamInfo> mStreams = new ArrayList<>();
-        private final ArrayList<JDvrStreamInfo> mStreamsToBeAdded = new ArrayList<>();
-        private final ArrayList<JDvrStreamInfo> mStreamsToBeRemoved = new ArrayList<>();
+        private final ArrayList<JDvrStreamInfo> mStreamsPending = new ArrayList<>();
         private final ArrayList<TsRecordEvent> mTsDataToProcess = new ArrayList<>();
 
         private final int mSessionNumber;
@@ -137,16 +138,33 @@ public class JDvrRecorder {
         public final int pid;
         public final int type;
         public final int format;
+        public int flags;
+        public static final int TO_BE_ADDED =       1 << 0;
+        public static final int TO_BE_REMOVED =     1 << 1;
+        public static final int FILTER_IS_RUNNING = 1 << 2;
+        public static final int ACQUIRING_PTS =     1 << 3;
+        public static final int TO_ACQUIRE_PTS =    1 << 4;
 
         public JDvrStreamInfo(int _pid, int _type, int _format) {
             pid = _pid;
             type = _type;
             format = _format;
+            flags = 0;
+        }
+        public JDvrStreamInfo(int _pid, int _type, int _format, int _flags) {
+            pid = _pid;
+            type = _type;
+            format = _format;
+            flags = _flags;
         }
 
         @Override
         public String toString() {
-            return "{" + "\"pid\":" + pid + ", \"type\":" + type + ", \"format\":" + format + '}';
+            return "{" + "\"pid\":" + pid + ", \"type\":" + type + ", \"format\":" + format + "}";
+        }
+        public String toString2() {
+            String flagsStr = String.format(Locale.US,"%5s", Integer.toBinaryString(flags)).replace(' ', '0');
+            return "{pid:"+pid+",type:"+type+",format:"+format+",flags:"+flagsStr+"}";
         }
     }
     public static class JDvrRecordingProgress {
@@ -199,37 +217,16 @@ public class JDvrRecorder {
     private final Handler.Callback mRecordingCallback = new Handler.Callback() {
         @Override
         public boolean handleMessage(Message message) {
-            Log.d(TAG, "JDvrRecorder receives message, what:" + message.what);
+            //Log.d(TAG, "JDvrRecorder receives message, what:" + message.what);
             // Rules:
             // 1. Update status
             // 2. Do *NOT* update state
             // 3. Do *NOT* call Tuner APIs
             if (message.what == JDvrRecordingStatus.STREAM_STATUS_PID_CHANGED) {
-                if (message.arg1 >= 0) {
-                    JDvrStreamInfo stream = (JDvrStreamInfo) message.obj;
-                    // Adding a PID
-                    final int pid_to_add = message.arg1;
-                    if (mFilters.containsKey(pid_to_add)) {
-                        Log.w(TAG,"PID to add already exists. pid: "+pid_to_add);
-                        return true;
-                    }
-                    mSession.mStreamsToBeAdded.add(stream);
-                    mSession.mPidChanged = true;
-                    // Take immediate action on PID changing
-                    mRecordingHandler.postAtFrontOfQueue(mStateMachineRunnable);
-                } else if (message.arg2>=0) {
-                    // Removing a PID
-                    final int pid_to_remove = message.arg2;
-                    JDvrStreamInfo stream = new JDvrStreamInfo(pid_to_remove,0,0);
-                    if (!mFilters.containsKey(pid_to_remove)) {
-                        Log.w(TAG,"PID to remove does not exist. pid: "+pid_to_remove);
-                        return true;
-                    }
-                    mSession.mStreamsToBeRemoved.add(stream);
-                    mSession.mPidChanged = true;
-                    // Take immediate action on PID changing
-                    mRecordingHandler.postAtFrontOfQueue(mStateMachineRunnable);
-                }
+                mSession.mStreamsPending.add((JDvrStreamInfo) message.obj);
+                mSession.mPidChanged = true;
+                // Take immediate action on PID changing
+                mRecordingHandler.postAtFrontOfQueue(mStateMachineRunnable);
             } else if (message.what == JDvrRecordingStatus.CONTROLLER_STATUS_TO_START) {
                 if (isCmdInProgress()) {
                     Log.i(TAG, "Just ignore this command as another command is in progress");
@@ -267,7 +264,7 @@ public class JDvrRecorder {
                 if (event instanceof TsRecordEvent) {
                     TsRecordEvent recordEvent = (TsRecordEvent) event;
                     final int dataLength = (int)recordEvent.getDataLength();
-                    if (dataLength>0) {
+                    if (dataLength>0 && recordEvent.getPts() != 0) {
                         mSession.mTimestampOfLastDataReception = SystemClock.elapsedRealtime();
                         mSession.mTimestampForStreamOffReference = mSession.mTimestampOfLastDataReception;
                         mSession.mTsDataToProcess.add(recordEvent);
@@ -502,6 +499,9 @@ public class JDvrRecorder {
             mSession.mControllerToPause = false;
             mSession.mControllerToStart = false;
         }
+        if (mSession.mPidChanged) {
+            handlingPidChanges();
+        }
         final long curTs = SystemClock.elapsedRealtime();
         final boolean cond1 = (curTs - mSession.mTimestampOfLastDataReception > timeout1 + timeout2);
         final boolean cond2 = (curTs - mSession.mTimestampOfLastNoDataNotify > interval1);
@@ -539,8 +539,56 @@ public class JDvrRecorder {
         }
     }
     private void handlingPidChanges() {
-        if (mSession.mPidChanged) {
-            mSession.mStreamsToBeRemoved.forEach(stream -> {
+        if (!mSession.mPidChanged) {
+            Log.w(TAG,"Trying to handle PID changes but status variable mPidChanged indicates there is no change");
+            return;
+        }
+        Log.d(TAG,"Streams before: "+(mSession.mStreams.size()>0 ? mSession.mStreams.stream().map(JDvrStreamInfo::toString2).collect(Collectors.joining(", ")) : "null"));
+        // 1. Add new PIDs and adjust flags
+        mSession.mStreamsPending.forEach(stream -> {
+            if ((stream.flags & JDvrStreamInfo.TO_BE_ADDED) != 0) {
+                JDvrStreamInfo stream2 = mSession.mStreams.stream().filter(s -> (s.pid == stream.pid))
+                        .findFirst().orElse(null);
+                if (stream2 == null) {
+                    mSession.mStreams.add(stream);
+                } else {
+                    Log.w(TAG,"Trying to add a stream which is already existing, pid:"+stream.pid);
+                }
+            } else if ((stream.flags & JDvrStreamInfo.TO_BE_REMOVED) != 0) {
+                JDvrStreamInfo stream3 = mSession.mStreams.stream().filter(s -> (s.pid == stream.pid))
+                        .findFirst().orElse(null);
+                if (stream3 != null) {
+                    stream3.flags |= JDvrStreamInfo.TO_BE_REMOVED;
+                } else {
+                    Log.w(TAG,"Trying to remove a non-existent stream, pid:"+stream.pid);
+                }
+            }
+        });
+        // 2. Determine a stream for retrieving PTS
+        final boolean hasVideo = mSession.mStreams.stream().anyMatch(s -> (s.type == JDvrStreamType.STREAM_TYPE_VIDEO));
+        if (hasVideo) {
+            mSession.mStreams.stream().filter(s -> (s.type == JDvrStreamType.STREAM_TYPE_VIDEO)).findFirst()
+                    .ifPresent(stream4 -> stream4.flags |= JDvrStreamInfo.TO_ACQUIRE_PTS);
+        } else {
+            JDvrStreamInfo stream5 = mSession.mStreams.stream().filter(s -> (s.type == JDvrStreamType.STREAM_TYPE_AUDIO))
+                    .findFirst().orElse(null);
+            if (stream5 != null) {
+                stream5.flags |= JDvrStreamInfo.TO_ACQUIRE_PTS;
+            } else {
+                Log.w(TAG,"Cannot find out any video/audio stream for acquiring PTS");
+            }
+        }
+        // 3. Fulfill the above changes
+        mSession.mStreams.forEach(stream -> {
+            boolean cond1 = (stream.flags & JDvrStreamInfo.TO_BE_ADDED) > 0;
+            final boolean cond2 = (stream.flags & JDvrStreamInfo.TO_BE_REMOVED) > 0;
+            boolean cond3 = (stream.flags & JDvrStreamInfo.FILTER_IS_RUNNING) > 0;
+            boolean cond4 = (stream.flags & JDvrStreamInfo.ACQUIRING_PTS) > 0;
+            final boolean cond5 = (stream.flags & JDvrStreamInfo.TO_ACQUIRE_PTS) > 0;
+            if (cond2 || (cond4 && !cond5)) {
+                if (!cond3) {
+                    Log.w(TAG,"the filter pid:"+stream.pid+" is supposed to be running, but actually it is not in running state");
+                }
                 Filter f = mFilters.remove(stream.pid);
                 if (f == null) {
                     Log.e(TAG, "The filter to remove is invalid");
@@ -557,9 +605,23 @@ public class JDvrRecorder {
                     Log.e(TAG, "Exception: " + e);
                     e.printStackTrace();
                 }
-                mSession.mStreams.removeIf(s -> (s.pid == stream.pid));
-            });
-            mSession.mStreamsToBeAdded.forEach(stream -> {
+                stream.flags &= ~(JDvrStreamInfo.FILTER_IS_RUNNING | JDvrStreamInfo.ACQUIRING_PTS);
+                cond3 = false;
+                cond4 = false;
+                if (!cond2) {
+                    stream.flags |= JDvrStreamInfo.TO_BE_ADDED;
+                    cond1 = true;
+                }
+                if (cond2) {
+                    Log.i(TAG,"removed & stopped a PES filter on pid "+stream.pid+" due to removeStream call");
+                } else {
+                    Log.i(TAG,"removed & stopped a PES filter on pid "+stream.pid+" due to PTS adjustment");
+                }
+            }
+            if (cond1 || (!cond2 && !cond4 && cond5)) {
+                if (cond3) {
+                    Log.w(TAG,"the filter pid:"+stream.pid+" is supposed to be not running, but actually it is in running state");
+                }
                 Filter f = mTuner.openFilter(
                         Filter.TYPE_TS,
                         Filter.SUBTYPE_RECORD,
@@ -571,16 +633,19 @@ public class JDvrRecorder {
                     return;
                 }
                 int flags = RecordSettings.TS_INDEX_FIRST_PACKET;
-                if (stream.type == JDvrStreamType.STREAM_TYPE_VIDEO) {
-                    flags |= RecordSettings.MPT_INDEX_VIDEO;
+                if (cond5) {
+                    if (stream.type == JDvrStreamType.STREAM_TYPE_VIDEO) {
+                        flags |= RecordSettings.MPT_INDEX_VIDEO;
+                    } else {
+                        flags |= RecordSettings.MPT_INDEX_AUDIO;
+                    }
                 }
-
                 RecordSettings.Builder builder = RecordSettings.builder(Filter.TYPE_TS);
                 builder.setTsIndexMask(flags);
-                if (stream.type == JDvrStreamType.STREAM_TYPE_VIDEO) {
+                if (cond5) {
                     builder.setScIndexType(RecordSettings.INDEX_TYPE_SC);
                 }
-                Settings recordSettings  = builder.build();
+                Settings recordSettings = builder.build();
                 FilterConfiguration filterConfig = TsFilterConfiguration
                         .builder()
                         .setTpid(stream.pid)
@@ -589,18 +654,25 @@ public class JDvrRecorder {
                 f.configure(filterConfig);
                 mDvrRecorder.attachFilter(f);
                 mFilters.put(stream.pid,f);
-                mSession.mStreams.add(stream);
-                if (mSession.mState == JDvrRecordingSession.STARTED_STATE) {
-                    f.start();
+                f.start();
+                stream.flags |= JDvrStreamInfo.FILTER_IS_RUNNING;
+                stream.flags &= ~JDvrStreamInfo.TO_BE_ADDED;
+                if (cond5) {
+                    stream.flags |= JDvrStreamInfo.ACQUIRING_PTS;
                 }
-            });
-            mSession.mPidChanged = false;
-            mSession.mStreamsToBeAdded.clear();
-            mSession.mStreamsToBeRemoved.clear();
-            mJDvrFile.updateRecordingStreams(mSession.mStreams);
-        } else {
-            Log.w(TAG,"Trying to handle PID changes but status variable mPidChanged indicates there is no change");
-        }
+                if (cond1) {
+                    Log.i(TAG,"added & started a PES filter on pid "+stream.pid+" due to addStream call");
+                } else {
+                    Log.i(TAG,"added & started a PES filter on pid "+stream.pid+" due to PTS adjustment");
+                }
+            }
+            stream.flags &= ~JDvrStreamInfo.TO_ACQUIRE_PTS;
+        });
+        mSession.mStreams.removeIf(stream -> ((stream.flags & JDvrStreamInfo.TO_BE_REMOVED) > 0));
+        mSession.mStreamsPending.clear();
+        mJDvrFile.updateRecordingStreams(mSession.mStreams);
+        mSession.mPidChanged = false;
+        Log.d(TAG,"Streams after: "+(mSession.mStreams.size()>0 ? mSession.mStreams.stream().map(JDvrStreamInfo::toString2).collect(Collectors.joining(", ")) : "null"));
     }
     private final Runnable mStateMachineRunnable = new Runnable() {
         @Override
@@ -737,9 +809,7 @@ public class JDvrRecorder {
         Log.d(TAG, "JDvrRecorder.addStream pid:"+pid+", type:"+stream_type+", format:"+format);
         Message msg = new Message();
         msg.what = JDvrRecordingStatus.STREAM_STATUS_PID_CHANGED;
-        msg.arg1 = pid;
-        msg.arg2 = -1;
-        msg.obj = new JDvrStreamInfo(pid,stream_type,format);
+        msg.obj = new JDvrStreamInfo(pid,stream_type,format,JDvrStreamInfo.TO_BE_ADDED);
         mRecordingHandler.sendMessage(msg);
         return true;
     }
@@ -758,8 +828,7 @@ public class JDvrRecorder {
         Log.d(TAG, "JDvrRecorder.removeStream pid:"+pid);
         Message msg = new Message();
         msg.what = JDvrRecordingStatus.STREAM_STATUS_PID_CHANGED;
-        msg.arg1 = -1;
-        msg.arg2 = pid;
+        msg.obj = new JDvrStreamInfo(pid,0,0,JDvrStreamInfo.TO_BE_REMOVED);
         mRecordingHandler.sendMessage(msg);
         return true;
     }

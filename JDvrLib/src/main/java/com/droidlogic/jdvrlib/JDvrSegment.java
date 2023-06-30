@@ -125,6 +125,10 @@ class JDvrSegment {
             return null;
         } else if (info.format == JDvrVideoFormat.VIDEO_FORMAT_MPEG2) {
             return MediaFormat.MIMETYPE_VIDEO_MPEG2;
+        } else if (info.format == JDvrVideoFormat.VIDEO_FORMAT_H264) {
+            return MediaFormat.MIMETYPE_VIDEO_AVC;
+        } else if (info.format == JDvrVideoFormat.VIDEO_FORMAT_HEVC) {
+            return MediaFormat.MIMETYPE_VIDEO_HEVC;
         }
         return null;
     }
@@ -142,6 +146,10 @@ class JDvrSegment {
             return JDvrVideoFormat.VIDEO_FORMAT_UNDEFINED;
         } else if (info.format == JDvrVideoFormat.VIDEO_FORMAT_MPEG2) {
             return JDvrVideoFormat.VIDEO_FORMAT_MPEG2;
+        } else if (info.format == JDvrVideoFormat.VIDEO_FORMAT_H264) {
+            return JDvrVideoFormat.VIDEO_FORMAT_H264;
+        } else if (info.format == JDvrVideoFormat.VIDEO_FORMAT_HEVC) {
+            return JDvrVideoFormat.VIDEO_FORMAT_HEVC;
         }
         return JDvrVideoFormat.VIDEO_FORMAT_UNDEFINED;
     }
@@ -171,6 +179,10 @@ class JDvrSegment {
             return null;
         } else if (info.format == JDvrAudioFormat.AUDIO_FORMAT_MPEG) {
             return MediaFormat.MIMETYPE_AUDIO_MPEG;
+        } else if (info.format == JDvrAudioFormat.AUDIO_FORMAT_AAC) {
+            return MediaFormat.MIMETYPE_AUDIO_AAC;
+        } else if (info.format == JDvrAudioFormat.AUDIO_FORMAT_EAC3) {
+            return MediaFormat.MIMETYPE_AUDIO_EAC3;
         }
         return null;
     }
@@ -188,6 +200,10 @@ class JDvrSegment {
             return JDvrAudioFormat.AUDIO_FORMAT_UNDEFINED;
         } else if (info.format == JDvrAudioFormat.AUDIO_FORMAT_MPEG) {
             return JDvrAudioFormat.AUDIO_FORMAT_MPEG;
+        } else if (info.format == JDvrAudioFormat.AUDIO_FORMAT_AAC) {
+            return JDvrAudioFormat.AUDIO_FORMAT_AAC;
+        } else if (info.format == JDvrAudioFormat.AUDIO_FORMAT_EAC3) {
+            return JDvrAudioFormat.AUDIO_FORMAT_EAC3;
         }
         return JDvrAudioFormat.AUDIO_FORMAT_UNDEFINED;
     }
@@ -293,10 +309,6 @@ class JDvrSegment {
     }
     public int write(byte[] buffer, int offset, int size) {
         if (mMode == 1) { throw new RuntimeException("Cannot do this under Playback situation"); }
-        if (mTimeOffsetIndexArray.size() == 0) {
-            final String buf = "{\"time\":0, \"offset\":0}\n";
-            writeIndex(buf.getBytes(),buf.length());
-        }
         try {
             mTsStream.seek(mTsStream.length());
             mTsStream.write(buffer, offset, size);
