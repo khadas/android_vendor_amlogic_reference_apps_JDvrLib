@@ -15,7 +15,7 @@
 -->
 <permissions>
 	<library name="jdvrlib"
-		file="/vendor/framework/jdvrlib.jar" />
+		file="/vendor/framework/JDvrLib.jar" />
 	<privapp-permissions package="com.droidlogic.jdvrlib">
 		<permission name="android.permission.ACCESS_TV_TUNER" />
 		<permission name="android.permission.TUNER_RESOURCE_ACCESS" />

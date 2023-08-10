@@ -1,7 +1,13 @@
+#include <sstream>
+#include <iomanip>
+using namespace std;
+
 #include <unistd.h>
 #include "log.h"
 #include "JDvrLibJNI.h"
 #include "Utilities.h"
+
+#define BASEDIR "/storage/emulated/0/Recordings/"
 
 static jobject gTunerForRecording;
 static jobject gTunerForPlayback;
@@ -14,6 +20,9 @@ static am_dvr_file_handle gDvrFileHandle2 = nullptr;
 static am_dvr_player_handle gPlayerHandle = nullptr;
 
 struct playback_progress_t {
+    jfieldID sessionNumberField;
+    jfieldID stateField;
+    jfieldID speedField;
     jfieldID currTimeField;
     jfieldID startTimeField;
     jfieldID endTimeField;
@@ -35,6 +44,9 @@ static bool initJNI(JNIEnv *env)
         jclass playbackprogressCls = env->FindClass("com/droidlogic/jdvrlib/JDvrPlayer$JDvrPlaybackProgress");
         gPlaybackProgressCls = static_cast<jclass>(env->NewGlobalRef(playbackprogressCls));
         env->DeleteLocalRef(playbackprogressCls);
+        gPlaybackProgressCtx.sessionNumberField = GetFieldIDOrDie(env, gPlaybackProgressCls, "sessionNumber", "I");
+        gPlaybackProgressCtx.stateField = GetFieldIDOrDie(env, gPlaybackProgressCls, "state", "I");
+        gPlaybackProgressCtx.speedField = GetFieldIDOrDie(env, gPlaybackProgressCls, "speed", "D");
         gPlaybackProgressCtx.currTimeField = GetFieldIDOrDie(env, gPlaybackProgressCls, "currTime", "J");
         gPlaybackProgressCtx.startTimeField = GetFieldIDOrDie(env, gPlaybackProgressCls, "startTime", "J");
         gPlaybackProgressCtx.endTimeField = GetFieldIDOrDie(env, gPlaybackProgressCls, "endTime", "J");
@@ -113,6 +125,8 @@ static void ref_on_player_event_callback (
         ALOGD("%s event: AM_DVR_PLAYER_EVENT_PAUSED_STATE",__func__);
     } else if (event == AM_DVR_PLAYER_EVENT_STOPPING_STATE) {
         ALOGD("%s event: AM_DVR_PLAYER_EVENT_STOPPING_STATE",__func__);
+        gDvrFileHandle2 = nullptr;
+        gPlayerHandle = nullptr;
     } else {
         ALOGD("%s unknown event: %d",__func__,event);
     }
@@ -148,7 +162,7 @@ static jint native_passASPlayer(JNIEnv *env, jobject jTestInstance, jobject jASP
     return 0;
 }
 
-static jint native_prepareRecorder(JNIEnv *env, jobject jTestInstance)
+static jint native_prepareRecorder(JNIEnv *env, jobject jTestInstance, jint rec_id)
 {
     ALOGD("%s, enter",__func__);
     am_dvr_file_handle fhdl1 = nullptr;
@@ -158,8 +172,11 @@ static jint native_prepareRecorder(JNIEnv *env, jobject jTestInstance)
         return -1;
     }
 
-    AmDvr_File_create1("/storage/emulated/0/Recordings/00001111",true,&fhdl1);
-    ALOGD("%s, fhdl1:%p",__func__,fhdl1);
+    stringstream buf;
+    buf << BASEDIR << setfill('0') << setw(8) << rec_id;
+
+    AmDvr_File_create1(buf.str().c_str(),true,&fhdl1);
+    ALOGD("%s, file handle:%p",__func__,fhdl1);
     gDvrFileHandle = fhdl1;
 
     am_dvr_recorder_handle rhdl1 = nullptr;
@@ -170,7 +187,7 @@ static jint native_prepareRecorder(JNIEnv *env, jobject jTestInstance)
     params.callback = ref_on_recorder_event_callback;
     AmDvr_Recorder_create(&params,&rhdl1);
     gRecorderHandle = rhdl1;
-    ALOGD("%s, rhdl1:%p",__func__,rhdl1);
+    ALOGD("%s, recorder handle:%p",__func__,rhdl1);
     return 0;
 }
 
@@ -184,8 +201,8 @@ static jint native_prepareTimeshiftRecorder(JNIEnv *env, jobject jTestInstance)
         return -1;
     }
 
-    AmDvr_File_create2("/storage/emulated/0/Recordings/00002222",300*1024*1024,360,true,&fhdl1);
-    ALOGD("%s, fhdl1:%p",__func__,fhdl1);
+    AmDvr_File_create2(BASEDIR"00008888",300*1024*1024,360,true,&fhdl1);
+    ALOGD("%s, file handle:%p",__func__,fhdl1);
     gDvrFileHandle = fhdl1;
 
     am_dvr_recorder_handle rhdl1 = nullptr;
@@ -196,7 +213,37 @@ static jint native_prepareTimeshiftRecorder(JNIEnv *env, jobject jTestInstance)
     params.callback = ref_on_recorder_event_callback;
     AmDvr_Recorder_create(&params,&rhdl1);
     gRecorderHandle = rhdl1;
-    ALOGD("%s, rhdl1:%p",__func__,rhdl1);
+    ALOGD("%s, recorder handle:%p",__func__,rhdl1);
+    return 0;
+}
+
+static jint native_preparePlayer(JNIEnv *env, jobject jTestInstance, jint rec_id, jobject surface)
+{
+    ALOGD("%s, enter",__func__);
+    am_dvr_file_handle fhdl1 = nullptr;
+
+    if (gDvrFileHandle2 != nullptr || gPlayerHandle != nullptr) {
+        ALOGE("%s, Cannot create a player due to previous playback is in progress",__func__);
+        return -1;
+    }
+
+    stringstream buf;
+    buf << BASEDIR << setfill('0') << setw(8) << rec_id;
+
+    AmDvr_File_create3(buf.str().c_str(),&fhdl1);
+    ALOGD("%s, file handle:%p",__func__,fhdl1);
+    gDvrFileHandle2 = fhdl1;
+
+    am_dvr_player_handle phdl1 = nullptr;
+    am_dvr_player_init_params params;
+    params.tuner = gTunerForPlayback;
+    params.jdvrfile_handle = fhdl1;
+    params.settings = gJDvrPlayerSettings;
+    params.callback = ref_on_player_event_callback;
+    params.surface = surface;
+    AmDvr_Player_create(&params,&phdl1);
+    gPlayerHandle = phdl1;
+    ALOGD("%s, player handle:%p",__func__,phdl1);
     return 0;
 }
 
@@ -258,95 +305,9 @@ static jint native_stopRecording(JNIEnv *env, jobject jTestInstance)
         return -1;
     }
     AmDvr_Recorder_stop(gRecorderHandle);
-    sleep(1);
-    AmDvr_Recorder_destroy(gRecorderHandle);
-    AmDvr_File_destroy(gDvrFileHandle);
     gRecorderHandle = nullptr;
     gDvrFileHandle = nullptr;
     return 0;
-}
-
-static jint native_prepareFileForPlayback(JNIEnv *env, jobject jTestInstance, jstring jPathPrefix)
-{
-    ALOGD("%s, enter",__func__);
-    am_dvr_file_handle fhdl1 = nullptr;
-    const char* path_prefix = env->GetStringUTFChars(jPathPrefix,0);
-
-    if (gDvrFileHandle2 != nullptr) {
-        ALOGE("%s, Cannot open a recording for playback as previous playback is in progress",__func__);
-        return -1;
-    }
-
-    am_dvr_result result = AmDvr_File_create3(path_prefix,&fhdl1);
-    env->ReleaseStringUTFChars(jPathPrefix,path_prefix);
-    if (result != JDVRLIB_JNI_OK) {
-        return -1;
-    }
-    ALOGD("%s, fhdl1:%p",__func__,fhdl1);
-    gDvrFileHandle2 = fhdl1;
-    return (jint)gDvrFileHandle2;
-}
-
-static jint native_prepareJDvrPlayer(JNIEnv *env, jobject jTestInstance, jobject asplayer, jint fileHandle)
-{
-    ALOGD("%s, enter",__func__);
-    initJNI(env);
-
-    am_dvr_player_handle phdl1 = nullptr;
-    am_dvr_player_init_params params;
-    params.asplayer = asplayer;
-    params.jdvrfile_handle = (am_dvr_file_handle)fileHandle;
-    params.settings = gJDvrPlayerSettings;
-    params.callback = ref_on_player_event_callback;
-    am_dvr_result result = AmDvr_Player_create(&params,&phdl1);
-    if (result != JDVRLIB_JNI_OK) {
-        return -1;
-    }
-    gPlayerHandle = phdl1;
-    ALOGD("%s, phdl1:%p",__func__,phdl1);
-    return 0;
-}
-
-static jint native_getVideoPID(JNIEnv *env, jobject jTestInstance, jint fileHandle)
-{
-    int pid = 0;
-    AmDvr_File_getVideoPID((am_dvr_file_handle)fileHandle, &pid);
-    return pid;
-}
-
-static jint native_getVideoFormat(JNIEnv *env, jobject jTestInstance, jint fileHandle)
-{
-    int format = 0;
-    AmDvr_File_getVideoFormat((am_dvr_file_handle)fileHandle, &format);
-    return format;
-}
-
-static jstring native_getVideoMIMEType(JNIEnv *env, jobject jTestInstance, jint fileHandle)
-{
-    char buf[30] = "";
-    AmDvr_File_getVideoMIMEType((am_dvr_file_handle)fileHandle,buf,30);
-    return env->NewStringUTF(buf);
-}
-
-static jint native_getAudioPID(JNIEnv *env, jobject jTestInstance, jint fileHandle)
-{
-    int pid = 0;
-    AmDvr_File_getAudioPID((am_dvr_file_handle)fileHandle,&pid);
-    return pid;
-}
-
-static jint native_getAudioFormat(JNIEnv *env, jobject jTestInstance, jint fileHandle)
-{
-    int format = 0;
-    AmDvr_File_getAudioFormat((am_dvr_file_handle)fileHandle,&format);
-    return format;
-}
-
-static jstring native_getAudioMIMEType(JNIEnv *env, jobject jTestInstance, jint fileHandle)
-{
-    char buf[30] = "";
-    AmDvr_File_getAudioMIMEType((am_dvr_file_handle)fileHandle,buf,30);
-    return env->NewStringUTF(buf);
 }
 
 static jboolean native_play(JNIEnv *env, jobject jTestInstance)
@@ -379,9 +340,6 @@ static jboolean native_stopPlayback(JNIEnv *env, jobject jTestInstance)
         return JNI_FALSE;
     }
     am_dvr_result result = AmDvr_Player_stop(gPlayerHandle);
-    sleep(1);
-    AmDvr_Recorder_destroy(gPlayerHandle);
-    AmDvr_File_destroy(gDvrFileHandle2);
     gPlayerHandle = nullptr;
     gDvrFileHandle2 = nullptr;
     return (result == JDVRLIB_JNI_OK) ? JNI_TRUE : JNI_FALSE;
@@ -414,6 +372,9 @@ static jobject native_getPlayingProgress(JNIEnv *env, jobject jTestInstance)
         return 0;
     }
 
+    jint session_number = 0;
+    jint state = 0;
+    jdouble speed = 0;
     jlong playing_time = 0;
     jlong start_time = 0;
     jlong end_time = 0;
@@ -433,6 +394,9 @@ static jobject native_getPlayingProgress(JNIEnv *env, jobject jTestInstance)
     AmDvr_File_getNumberOfSegments(gDvrFileHandle2,&number_of_segments);
 
     jobject progress = env->AllocObject(gPlaybackProgressCls);
+    env->SetIntField(progress,gPlaybackProgressCtx.sessionNumberField,0);
+    env->SetIntField(progress,gPlaybackProgressCtx.stateField,0);
+    env->SetDoubleField(progress,gPlaybackProgressCtx.speedField,0);
     env->SetLongField(progress,gPlaybackProgressCtx.currTimeField,playing_time);
     env->SetLongField(progress,gPlaybackProgressCtx.startTimeField,start_time);
     env->SetLongField(progress,gPlaybackProgressCtx.endTimeField,end_time);
@@ -457,21 +421,14 @@ static const JNINativeMethod gJniTestInstanceMethods[] = {
     { "native_passTuners", "(Landroid/media/tv/tuner/Tuner;Landroid/media/tv/tuner/Tuner;)V", (void*)native_passTuners},
     { "native_passRecorderSettings", "(Lcom/droidlogic/jdvrlib/JDvrRecorderSettings;)V", (void*)native_passRecorderSettings},
     { "native_passPlayerSettings", "(Lcom/droidlogic/jdvrlib/JDvrPlayerSettings;)V", (void*)native_passPlayerSettings},
-    { "native_prepareRecorder", "()V", (void*)native_prepareRecorder},
-    { "native_prepareTimeshiftRecorder", "()V", (void*)native_prepareTimeshiftRecorder},
+    { "native_prepareRecorder", "(I)I", (void*)native_prepareRecorder},
+    { "native_prepareTimeshiftRecorder", "()I", (void*)native_prepareTimeshiftRecorder},
+    { "native_preparePlayer", "(ILandroid/view/Surface;)I", (void*)native_preparePlayer},
     { "native_addStream", "()V", (void*)native_addStream},
     { "native_removeStream", "()V", (void*)native_removeStream},
     { "native_startRecording", "()V", (void*)native_startRecording},
     { "native_pauseRecording", "()V", (void*)native_pauseRecording},
     { "native_stopRecording", "()V", (void*)native_stopRecording},
-    { "native_prepareFileForPlayback", "(Ljava/lang/String;)I", (void*)native_prepareFileForPlayback},
-    { "native_prepareJDvrPlayer", "(Lcom/amlogic/asplayer/api/ASPlayer;I)I", (void*)native_prepareJDvrPlayer},
-    { "native_getVideoPID", "(I)I", (void*)native_getVideoPID},
-    { "native_getVideoFormat", "(I)I", (void*)native_getVideoFormat},
-    { "native_getVideoMIMEType", "(I)Ljava/lang/String;", (void*)native_getVideoMIMEType},
-    { "native_getAudioPID", "(I)I", (void*)native_getAudioPID},
-    { "native_getAudioFormat", "(I)I", (void*)native_getAudioFormat},
-    { "native_getAudioMIMEType", "(I)Ljava/lang/String;", (void*)native_getAudioMIMEType},
     { "native_play", "()Z", (void*)native_play},
     { "native_pausePlayback", "()Z", (void*)native_pausePlayback},
     { "native_stopPlayback", "()Z", (void*)native_stopPlayback},
@@ -492,7 +449,9 @@ jint JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
 
     registerNativeMethods(env,
             "com/droidlogic/jdvrlibtest/TestInstance",
-            gJniTestInstanceMethods, 25);
+            gJniTestInstanceMethods, 18);
+
+    initJNI(env);
     return JNI_VERSION_1_4;
 }
 

@@ -24,10 +24,11 @@ typedef struct {
 
 /**Player initialization parameters. An input parameter of AmDvr_Player_create*/
 typedef struct {
-    jobject                     asplayer;   // should supply com.amlogic.asplayer.api.ASPlayer
+    jobject                     tuner;      // should supply android.media.tv.tuner.Tuner
     am_dvr_file_handle          jdvrfile_handle;
     jobject                     settings;   // should supply com.droidlogic.jdvrlib.JDvrPlayerSettings
     on_player_event_callback    callback;
+    jobject                     surface;
 } am_dvr_player_init_params;
 
 /**
@@ -116,6 +117,10 @@ am_dvr_result
 AmDvr_File_duration(
         am_dvr_file_handle handle,
         int64_t* pduration);
+am_dvr_result
+AmDvr_File_duration2(
+        const uint8_t* path_prefix,
+        int64_t* pduration);
 
 /**
  * @brief   Get recording size in bytes
@@ -126,6 +131,10 @@ AmDvr_File_duration(
 am_dvr_result
 AmDvr_File_size(
         am_dvr_file_handle handle,
+        int64_t* psize);
+am_dvr_result
+AmDvr_File_size2(
+        const uint8_t* path_prefix,
         int64_t* psize);
 
 /**
@@ -145,7 +154,7 @@ AmDvr_File_getPlayingTime(
  * @param[out]  ptime: A pointer to the returned time value in ms. Notice it
  *          refers to the original time at which recording was initially made.
  *          The earliest segments may have already been removed under timeshift
- *          situation, but the original time is still effective for calcuating
+ *          situation, but the original time is still effective for calculating
  *          timeshfit recording's start time.
  * @retval  JDVRLIB_JNI_OK if function succeeds, or JDVRLIB_JNI_ERR if any error.
  */

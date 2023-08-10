@@ -1,10 +1,10 @@
 package com.droidlogic.jdvrlibtest;
 
-import androidx.annotation.NonNull;
-import androidx.appcompat.app.ActionBar;
-import androidx.appcompat.app.AppCompatActivity;
-
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Message;
+import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
@@ -15,10 +15,10 @@ import android.widget.EditText;
 import android.widget.ProgressBar;
 import android.widget.Spinner;
 import android.widget.TextView;
-import android.util.Log;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.Message;
+
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.ActionBar;
+import androidx.appcompat.app.AppCompatActivity;
 
 import com.droidlogic.jdvrlib.JDvrPlayer.JDvrPlaybackProgress;
 import com.droidlogic.jdvrlibtest.TestInstance.TaskMsg;
@@ -366,6 +366,9 @@ public class MainActivity extends AppCompatActivity {
                     break;
                 case UI_MSG_PROGRESS:
                     JDvrPlaybackProgress progress = (JDvrPlaybackProgress) message.obj;
+                    if (progress == null) {
+                        break;
+                    }
                     ProgressBar progressBar = findViewById(R.id.progressBar);
                     int percent = (int)((progress.currTime-progress.startTime)*100/(progress.endTime-progress.startTime));
                     progressBar.setProgress(percent);

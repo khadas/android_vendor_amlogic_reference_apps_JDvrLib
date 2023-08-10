@@ -340,7 +340,7 @@ public class JDvrFile {
             Log.e(TAG,"Cannot delete as JDvrFile seems still in use. Need to call JDvrFile.close.");
             return false;
         }
-        return delete(mPathPrefix);
+        return delete2(mPathPrefix);
     }
     /**
      * Delete all associated files of a recording including ts/index/status/list.
@@ -351,7 +351,7 @@ public class JDvrFile {
      * @param pathPrefix the path prefix of the recording to be removed.
      * @return true if operation is successful, or false otherwise.
      */
-    public static boolean delete (String pathPrefix) {
+    public static boolean delete2(String pathPrefix) {
         final String lockPath = pathPrefix + ".lock";
         if (!createLockIfNotExist(lockPath)) {
             Log.e(TAG,"Cannot create .lock file");
@@ -391,6 +391,36 @@ public class JDvrFile {
         }
         return mSegments.stream().mapToLong(JDvrSegment::size).sum();
     }
+    public static long size2(String pathPrefix) {
+        long ret = 0L;
+        final String statPath = pathPrefix + ".stat";
+        try {
+            final String[] lines = Files.readAllLines(Paths.get(statPath)).toArray(new String[0]);
+            for (String line : lines) {
+                JsonReader reader = new JsonReader(new StringReader(line));
+                boolean hit = false;
+                reader.beginObject();
+                while (reader.hasNext()) {
+                    String name = reader.nextName();
+                    if (name.equals("size")) {
+                        ret = reader.nextLong();
+                        hit = true;
+                    } else {
+                        reader.skipValue();
+                    }
+                }
+                reader.endObject();
+                if (hit) {
+                    break;
+                }
+            }
+        } catch (IOException e) {
+            Log.e(TAG, "Exception: " + e);
+            e.printStackTrace();
+            return 0L;
+        }
+        return ret;
+    }
     /**
      * Get recording duration in ms.
      * @return recording duration in ms.
@@ -398,6 +428,36 @@ public class JDvrFile {
     public long duration()
     {
         return mSegments.stream().mapToLong(JDvrSegment::duration).sum();
+    }
+    public static long duration2(String pathPrefix) {
+        long ret = 0L;
+        final String statPath = pathPrefix + ".stat";
+        try {
+            final String[] lines = Files.readAllLines(Paths.get(statPath)).toArray(new String[0]);
+            for (String line : lines) {
+                JsonReader reader = new JsonReader(new StringReader(line));
+                boolean hit = false;
+                reader.beginObject();
+                while (reader.hasNext()) {
+                    String name = reader.nextName();
+                    if (name.equals("duration")) {
+                        ret = reader.nextLong();
+                        hit = true;
+                    } else {
+                        reader.skipValue();
+                    }
+                }
+                reader.endObject();
+                if (hit) {
+                    break;
+                }
+            }
+        } catch (IOException e) {
+            Log.e(TAG, "Exception: " + e);
+            e.printStackTrace();
+            return 0L;
+        }
+        return ret;
     }
     /**
      * Close all segment files including ts/index.
@@ -560,6 +620,7 @@ public class JDvrFile {
                 currSegment.writeIndex(line.getBytes(), line.length());
                 mTimestampOfLastIndexWrite = curTs;
                 updateStatFile();
+                updateListFile();
             }
         }
         // 4. Write data to TS file

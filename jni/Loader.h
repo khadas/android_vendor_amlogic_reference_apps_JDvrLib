@@ -42,7 +42,9 @@ public:
 
     bool isTimeshift();
     long duration();
+    static long duration2(jstring path_prefix);
     long size();
+    static long size2(jstring path_prefix);
     long getPlayingTime();
     long getStartTime();
     int getSegmentIdBeingRead();
@@ -55,6 +57,7 @@ public:
     int getAudioPID();
     int getAudioFormat();
     int getAudioMIMEType(char* buf, int buf_len);
+    void close();
     static bool remove(jstring path_prefix);
 
     jobject getJObject() { return mJavaJDvrFile; }
@@ -88,7 +91,8 @@ private:
 class JDvrPlayer
 {
 public:
-    JDvrPlayer(jobject asplayer, jobject file, jobject settings, on_player_event_callback callback);
+    JDvrPlayer(jobject asplayer, jobject file, jobject settings, on_player_event_callback callback,
+            jobject surface);
     virtual ~JDvrPlayer();
 
     bool play();

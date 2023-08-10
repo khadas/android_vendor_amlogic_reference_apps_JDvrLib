@@ -16,7 +16,9 @@ struct jdvr_file_t {
     jmethodID constructor3MID;
     jmethodID isTimeshiftMID;
     jmethodID durationMID;
+    jmethodID duration2MID;
     jmethodID sizeMID;
+    jmethodID size2MID;
     jmethodID getPlayingTimeMID;
     jmethodID getStartTimeMID;
     jmethodID getSegmentIdBeingReadMID;
@@ -29,7 +31,8 @@ struct jdvr_file_t {
     jmethodID getAudioPIDMID;
     jmethodID getAudioFormatMID;
     jmethodID getAudioMIMETypeMID;
-    jmethodID remove;
+    jmethodID closeMID;
+    jmethodID removeMID;
 };
 
 struct jdvr_recorder_t {
@@ -58,6 +61,8 @@ struct message_t {
 };
 
 struct recording_progress_t {
+    jfieldID sessionNumberField;
+    jfieldID stateField;
     jfieldID durationField;
     jfieldID startTimeField;
     jfieldID endTimeField;
@@ -68,6 +73,9 @@ struct recording_progress_t {
 };
 
 struct playback_progress_t {
+    jfieldID sessionNumberField;
+    jfieldID stateField;
+    jfieldID speedField;
     jfieldID currTimeField;
     jfieldID startTimeField;
     jfieldID endTimeField;
@@ -119,6 +127,7 @@ jint JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
     JNIEnv* env = NULL;
 
     ALOGD("%s, enter",__PRETTY_FUNCTION__);
+    Loader::setJavaVM(vm);
     if (vm->GetEnv((void**)&env, JNI_VERSION_1_4) != JNI_OK) {
         ALOGE("ERROR: GetEnv failed");
         return -1;
@@ -127,14 +136,13 @@ jint JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
 
     AmDvr_registerJNI(env);
 
-    Loader::setJavaVM(vm);
-
     return JNI_VERSION_1_4;
 }
 
 // Loader
 void Loader::setJavaVM(JavaVM* javaVM) {
     mJavaVM = javaVM;
+    ALOGD("%s %p",__func__,mJavaVM);
 }
 
 /** return a pointer to the JNIEnv for this thread */
@@ -167,7 +175,6 @@ JNIEnv* Loader::attachJNIEnv(const char *envName) {
 
 /** detach the current thread from the JavaVM */
 void Loader::detachJNIEnv() {
-    assert(mJavaVM != nullptr);
     ALOGV("%d detachJNIEnv", gettid());
     mJavaVM->DetachCurrentThread();
 }
@@ -178,7 +185,7 @@ bool Loader::initJDvrLibJNI(JNIEnv *jniEnv) {
     if (env == nullptr) {
         env = Loader::getJNIEnv();
         if (env == nullptr) {
-            ALOGE("failed to get jnievn, attaching thread failed");
+            ALOGE("Failed to get JNIEnv*, attaching thread failed");
             return false;
         }
     }
@@ -192,7 +199,9 @@ bool Loader::initJDvrLibJNI(JNIEnv *jniEnv) {
     gJDvrFileCtx.constructor3MID = GetMethodIDOrDie(env, gJDvrFileCls, "<init>", "(Ljava/lang/String;)V");
     gJDvrFileCtx.isTimeshiftMID = GetMethodIDOrDie(env, gJDvrFileCls, "isTimeshift", "()Z");
     gJDvrFileCtx.durationMID = GetMethodIDOrDie(env, gJDvrFileCls, "duration", "()J");
+    gJDvrFileCtx.duration2MID = GetStaticMethodIDOrDie(env, gJDvrFileCls, "duration2", "(Ljava/lang/String;)J");
     gJDvrFileCtx.sizeMID = GetMethodIDOrDie(env, gJDvrFileCls, "size", "()J");
+    gJDvrFileCtx.size2MID = GetStaticMethodIDOrDie(env, gJDvrFileCls, "size2", "(Ljava/lang/String;)J");
     gJDvrFileCtx.getPlayingTimeMID = GetMethodIDOrDie(env, gJDvrFileCls, "getPlayingTime", "()J");
     gJDvrFileCtx.getStartTimeMID = GetMethodIDOrDie(env, gJDvrFileCls, "getStartTime", "()J");
     gJDvrFileCtx.getSegmentIdBeingReadMID = GetMethodIDOrDie(env, gJDvrFileCls, "getSegmentIdBeingRead", "()I");
@@ -205,7 +214,8 @@ bool Loader::initJDvrLibJNI(JNIEnv *jniEnv) {
     gJDvrFileCtx.getAudioPIDMID = GetMethodIDOrDie(env, gJDvrFileCls, "getAudioPID", "()I");
     gJDvrFileCtx.getAudioFormatMID = GetMethodIDOrDie(env, gJDvrFileCls, "getAudioFormat", "()I");
     gJDvrFileCtx.getAudioMIMETypeMID = GetMethodIDOrDie(env, gJDvrFileCls, "getAudioMIMEType", "()Ljava/lang/String;");
-    gJDvrFileCtx.remove = GetStaticMethodIDOrDie(env, gJDvrFileCls, "delete", "(Ljava/lang/String;)Z");
+    gJDvrFileCtx.closeMID = GetMethodIDOrDie(env, gJDvrFileCls, "close", "()V");
+    gJDvrFileCtx.removeMID = GetStaticMethodIDOrDie(env, gJDvrFileCls, "delete2", "(Ljava/lang/String;)Z");
 
     // JDvrRecorder
     jclass jdvrrecorderCls = env->FindClass("com/droidlogic/jdvrlib/JDvrRecorder");
@@ -231,11 +241,12 @@ bool Loader::initJDvrLibJNI(JNIEnv *jniEnv) {
     env->DeleteLocalRef(jdvrplayerCls);
     gJDvrPlayerCtx.constructorMID = GetMethodIDOrDie(env, gJDvrPlayerCls, "<init>",
             "("
-            "Lcom/amlogic/asplayer/api/ASPlayer;"
+            "Landroid/media/tv/tuner/Tuner;"
             "Lcom/droidlogic/jdvrlib/JDvrFile;"
             "Lcom/droidlogic/jdvrlib/JDvrPlayerSettings;"
             "Ljava/util/concurrent/Executor;"
             "Lcom/droidlogic/jdvrlib/OnJDvrPlayerEventListener;"
+            "Landroid/view/Surface;"
             ")V");
     gJDvrPlayerCtx.playMID = GetMethodIDOrDie(env, gJDvrPlayerCls, "play", "()Z");
     gJDvrPlayerCtx.pauseMID = GetMethodIDOrDie(env, gJDvrPlayerCls, "pause", "()Z");
@@ -256,6 +267,8 @@ bool Loader::initJDvrLibJNI(JNIEnv *jniEnv) {
     jclass recordingprogressCls = env->FindClass("com/droidlogic/jdvrlib/JDvrRecorder$JDvrRecordingProgress");
     gRecordingProgressCls = static_cast<jclass>(env->NewGlobalRef(recordingprogressCls));
     env->DeleteLocalRef(recordingprogressCls);
+    gRecordingProgressCtx.sessionNumberField = GetFieldIDOrDie(env, gRecordingProgressCls, "sessionNumber", "I");
+    gRecordingProgressCtx.stateField = GetFieldIDOrDie(env, gRecordingProgressCls, "state", "I");
     gRecordingProgressCtx.durationField = GetFieldIDOrDie(env, gRecordingProgressCls, "duration", "J");
     gRecordingProgressCtx.startTimeField = GetFieldIDOrDie(env, gRecordingProgressCls, "startTime", "J");
     gRecordingProgressCtx.endTimeField = GetFieldIDOrDie(env, gRecordingProgressCls, "endTime", "J");
@@ -268,6 +281,9 @@ bool Loader::initJDvrLibJNI(JNIEnv *jniEnv) {
     jclass playbackprogressCls = env->FindClass("com/droidlogic/jdvrlib/JDvrPlayer$JDvrPlaybackProgress");
     gPlaybackProgressCls = static_cast<jclass>(env->NewGlobalRef(playbackprogressCls));
     env->DeleteLocalRef(playbackprogressCls);
+    gPlaybackProgressCtx.sessionNumberField = GetFieldIDOrDie(env, gPlaybackProgressCls, "sessionNumber", "I");
+    gPlaybackProgressCtx.stateField = GetFieldIDOrDie(env, gPlaybackProgressCls, "state", "I");
+    gPlaybackProgressCtx.speedField = GetFieldIDOrDie(env, gPlaybackProgressCls, "speed", "D");
     gPlaybackProgressCtx.currTimeField = GetFieldIDOrDie(env, gPlaybackProgressCls, "currTime", "J");
     gPlaybackProgressCtx.startTimeField = GetFieldIDOrDie(env, gPlaybackProgressCls, "startTime", "J");
     gPlaybackProgressCtx.endTimeField = GetFieldIDOrDie(env, gPlaybackProgressCls, "endTime", "J");
@@ -293,6 +309,7 @@ JNIEnv *Loader::getOrAttachJNIEnvironment() {
     JNIEnv *env = getJNIEnv();
     if (!env) {
         if (mJavaVM == nullptr) {
+            ALOGE("%s, java vm is null",__func__);
             return nullptr;
         }
 
@@ -323,13 +340,19 @@ JDvrFile::JDvrFile(jstring path_prefix, jboolean trunc)
     ALOGD("%s",__PRETTY_FUNCTION__);
     mEnv = Loader::getOrAttachJNIEnvironment();
     if (mEnv == nullptr) {
-        ALOGE("Failed to get JNIEnv");
+        ALOGE("Failed to get JNIEnv* at %s:%d",__func__,__LINE__);
         return;
+    }
+    const char* str = mEnv->GetStringUTFChars(path_prefix,0);
+    if (str != NULL) {
+        ALOGD("%s path_prefix:%s",__PRETTY_FUNCTION__,str);
+        mEnv->ReleaseStringUTFChars(path_prefix,str);
     }
     jobject file = mEnv->NewObject(gJDvrFileCls, gJDvrFileCtx.constructor1MID,
             path_prefix, trunc);
     if (file != NULL) {
         mJavaJDvrFile = MakeGlobalRefOrDie(mEnv, file);
+        mEnv->DeleteLocalRef(file);
     }
 }
 
@@ -339,13 +362,19 @@ JDvrFile::JDvrFile(jstring path_prefix, jlong limit_size, jint limit_seconds,jbo
     ALOGD("%s",__PRETTY_FUNCTION__);
     mEnv = Loader::getOrAttachJNIEnvironment();
     if (mEnv == nullptr) {
-        ALOGE("Failed to get JNIEnv");
+        ALOGE("Failed to get JNIEnv* at %s:%d",__func__,__LINE__);
         return;
+    }
+    const char* str = mEnv->GetStringUTFChars(path_prefix,0);
+    if (str != NULL) {
+        ALOGD("%s path_prefix:%s",__PRETTY_FUNCTION__,str);
+        mEnv->ReleaseStringUTFChars(path_prefix,str);
     }
     jobject file = mEnv->NewObject(gJDvrFileCls, gJDvrFileCtx.constructor2MID,
             path_prefix, limit_size, limit_seconds, trunc);
     if (file != NULL) {
         mJavaJDvrFile = MakeGlobalRefOrDie(mEnv, file);
+        mEnv->DeleteLocalRef(file);
     }
 }
 
@@ -355,19 +384,27 @@ JDvrFile::JDvrFile(jstring path_prefix)
     ALOGD("%s",__PRETTY_FUNCTION__);
     mEnv = Loader::getOrAttachJNIEnvironment();
     if (mEnv == nullptr) {
-        ALOGE("Failed to get JNIEnv");
+        ALOGE("Failed to get JNIEnv* at %s:%d",__func__,__LINE__);
         return;
+    }
+    const char* str = mEnv->GetStringUTFChars(path_prefix,0);
+    if (str != NULL) {
+        ALOGD("%s path_prefix:%s",__PRETTY_FUNCTION__,str);
+        mEnv->ReleaseStringUTFChars(path_prefix,str);
     }
     jobject file = mEnv->NewObject(gJDvrFileCls, gJDvrFileCtx.constructor3MID, path_prefix);
     if (file != NULL) {
         mJavaJDvrFile = MakeGlobalRefOrDie(mEnv, file);
+        mEnv->DeleteLocalRef(file);
     }
 }
 
 JDvrFile::~JDvrFile() {
-    ALOGD("%s",__PRETTY_FUNCTION__);
-    mEnv->DeleteGlobalRef(mJavaJDvrFile);
-    mJavaJDvrFile = NULL;
+    ALOGD("%s mJavaJDvrFile:%p",__PRETTY_FUNCTION__,mJavaJDvrFile);
+    if (mJavaJDvrFile != NULL) {
+        mEnv->DeleteGlobalRef(mJavaJDvrFile);
+        mJavaJDvrFile = NULL;
+    }
 }
 
 bool JDvrFile::isTimeshift() {
@@ -386,6 +423,17 @@ long JDvrFile::duration()
     return (long)result;
 }
 
+long JDvrFile::duration2(jstring path_prefix)
+{
+    JNIEnv* env = Loader::getOrAttachJNIEnvironment();
+    if (env == nullptr) {
+        ALOGE("Failed to get JNIEnv* at %s:%d",__func__,__LINE__);
+        return false;
+    }
+    jlong result = env->CallStaticLongMethod(gJDvrFileCls,gJDvrFileCtx.duration2MID,path_prefix);
+    return (long)result;
+}
+
 long JDvrFile::size()
 {
     if (mJavaJDvrFile == NULL) {
@@ -393,6 +441,17 @@ long JDvrFile::size()
     }
     jlong result = mEnv->CallLongMethod(mJavaJDvrFile, gJDvrFileCtx.sizeMID);
     //ALOGD("%s, returns %d",__func__,(long)result);
+    return (long)result;
+}
+
+long JDvrFile::size2(jstring path_prefix)
+{
+    JNIEnv* env = Loader::getOrAttachJNIEnvironment();
+    if (env == nullptr) {
+        ALOGE("Failed to get JNIEnv* at %s:%d",__func__,__LINE__);
+        return false;
+    }
+    jlong result = env->CallStaticLongMethod(gJDvrFileCls,gJDvrFileCtx.size2MID,path_prefix);
     return (long)result;
 }
 
@@ -482,14 +541,19 @@ int JDvrFile::getAudioMIMEType(char* buf, int buf_len) {
     return (buf_len>0) ? JNI_OK : JNI_ERR;
 }
 
+void JDvrFile::close()
+{
+    mEnv->CallVoidMethod(mJavaJDvrFile,gJDvrFileCtx.closeMID);
+}
+
 bool JDvrFile::remove(jstring path_prefix)
 {
     JNIEnv* env = Loader::getOrAttachJNIEnvironment();
     if (env == nullptr) {
-        ALOGE("Failed to get JNIEnv");
+        ALOGE("Failed to get JNIEnv* at %s:%d",__func__,__LINE__);
         return false;
     }
-    jboolean result = env->CallStaticBooleanMethod(gJDvrFileCls,gJDvrFileCtx.remove,path_prefix);
+    jboolean result = env->CallStaticBooleanMethod(gJDvrFileCls,gJDvrFileCtx.removeMID,path_prefix);
     return (bool)result;
 }
 
@@ -498,7 +562,7 @@ JDvrRecorder::JDvrRecorder(jobject tuner, jobject file, jobject settings, on_rec
 {
     mEnv = Loader::getOrAttachJNIEnvironment();
     if (mEnv == nullptr) {
-        ALOGE("Failed to get JNIEnv");
+        ALOGE("Failed to get JNIEnv* at %s:%d",__func__,__LINE__);
         return;
     }
     if (callback == nullptr) {
@@ -510,7 +574,10 @@ JDvrRecorder::JDvrRecorder(jobject tuner, jobject file, jobject settings, on_rec
             __PRETTY_FUNCTION__,tuner,file,settings,callback);
     jobject recorder = mEnv->NewObject(gJDvrRecorderCls, gJDvrRecorderCtx.constructorMID,
             tuner, file, settings, NULL, NULL);
-    mJavaJDvrRecorder = MakeGlobalRefOrDie(mEnv, recorder);
+    if (recorder != NULL) {
+        mJavaJDvrRecorder = MakeGlobalRefOrDie(mEnv, recorder);
+        mEnv->DeleteLocalRef(recorder);
+    }
 }
 
 JDvrRecorder::~JDvrRecorder() {
@@ -575,6 +642,8 @@ static jint native_notifyJDvrRecorderEvent(JNIEnv *env, jobject jListener,
     }
     if (what == AM_DVR_RECORDER_EVENT_PROGRESS) {
         auto pEvt = new am_dvr_recording_progress;
+        pEvt->sessionNumber = env->GetIntField(obj,gRecordingProgressCtx.sessionNumberField);
+        pEvt->state = env->GetIntField(obj,gRecordingProgressCtx.stateField);
         pEvt->duration = env->GetLongField(obj,gRecordingProgressCtx.durationField);
         pEvt->startTime = env->GetLongField(obj,gRecordingProgressCtx.startTimeField);
         pEvt->endTime = env->GetLongField(obj,gRecordingProgressCtx.endTimeField);
@@ -607,6 +676,9 @@ static jint native_notifyJDvrPlayerEvent(JNIEnv *env, jobject jListener,
     }
     if (what == AM_DVR_PLAYER_EVENT_PROGRESS) {
         auto pEvt = new am_dvr_playback_progress;
+        pEvt->sessionNumber = env->GetIntField(obj,gPlaybackProgressCtx.sessionNumberField);
+        pEvt->state = env->GetIntField(obj,gPlaybackProgressCtx.stateField);
+        pEvt->speed = env->GetDoubleField(obj,gPlaybackProgressCtx.speedField);
         pEvt->currTime = env->GetLongField(obj,gPlaybackProgressCtx.currTimeField);
         pEvt->startTime = env->GetLongField(obj,gPlaybackProgressCtx.startTimeField);
         pEvt->endTime = env->GetLongField(obj,gPlaybackProgressCtx.endTimeField);
@@ -622,11 +694,11 @@ static jint native_notifyJDvrPlayerEvent(JNIEnv *env, jobject jListener,
     return 0;
 }
 
-JDvrPlayer::JDvrPlayer(jobject asplayer, jobject file, jobject settings, on_player_event_callback callback)
+JDvrPlayer::JDvrPlayer(jobject tuner, jobject file, jobject settings, on_player_event_callback callback, jobject surface)
 {
     mEnv = Loader::getOrAttachJNIEnvironment();
     if (mEnv == nullptr) {
-        ALOGE("Failed to get JNIEnv");
+        ALOGE("Failed to get JNIEnv* at %s:%d",__func__,__LINE__);
         return;
     }
     if (callback == nullptr) {
@@ -634,11 +706,14 @@ JDvrPlayer::JDvrPlayer(jobject asplayer, jobject file, jobject settings, on_play
         return;
     }
     mCallback = callback;
-    ALOGD("%s, asplayer:%p, file:%p, settings:%p, callback:%p",
-            __PRETTY_FUNCTION__,asplayer,file,settings,callback);
+    ALOGD("%s, tuner:%p, file:%p, settings:%p, callback:%p, surface:%p",
+            __PRETTY_FUNCTION__,tuner,file,settings,callback,surface);
     jobject player = mEnv->NewObject(gJDvrPlayerCls, gJDvrPlayerCtx.constructorMID,
-            asplayer, file, settings, NULL, NULL);
-    mJavaJDvrPlayer = MakeGlobalRefOrDie(mEnv, player);
+            tuner, file, settings, NULL, NULL, surface);
+    if (player != NULL) {
+        mJavaJDvrPlayer = MakeGlobalRefOrDie(mEnv, player);
+        mEnv->DeleteLocalRef(player);
+    }
 }
 
 JDvrPlayer::~JDvrPlayer() {

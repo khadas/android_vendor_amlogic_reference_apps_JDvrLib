@@ -5,9 +5,14 @@ import android.os.SystemClock;
 import android.util.JsonReader;
 import android.util.Log;
 
+import com.droidlogic.jdvrlib.JDvrRecorder.JDvrAudioFormat;
+import com.droidlogic.jdvrlib.JDvrRecorder.JDvrStreamInfo;
+import com.droidlogic.jdvrlib.JDvrRecorder.JDvrStreamType;
+import com.droidlogic.jdvrlib.JDvrRecorder.JDvrVideoFormat;
+
 import java.io.File;
-import java.io.RandomAccessFile;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.io.StringReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,11 +24,6 @@ import java.util.Comparator;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.stream.IntStream;
-
-import com.droidlogic.jdvrlib.JDvrRecorder.JDvrStreamInfo;
-import com.droidlogic.jdvrlib.JDvrRecorder.JDvrStreamType;
-import com.droidlogic.jdvrlib.JDvrRecorder.JDvrVideoFormat;
-import com.droidlogic.jdvrlib.JDvrRecorder.JDvrAudioFormat;
 
 class JDvrSegment {
     final private String TAG = JDvrSegment.class.getSimpleName();
@@ -200,6 +200,8 @@ class JDvrSegment {
             return JDvrAudioFormat.AUDIO_FORMAT_UNDEFINED;
         } else if (info.format == JDvrAudioFormat.AUDIO_FORMAT_MPEG) {
             return JDvrAudioFormat.AUDIO_FORMAT_MPEG;
+        } else if (info.format == JDvrAudioFormat.AUDIO_FORMAT_MPEG2) {
+            return JDvrAudioFormat.AUDIO_FORMAT_MPEG2;
         } else if (info.format == JDvrAudioFormat.AUDIO_FORMAT_AAC) {
             return JDvrAudioFormat.AUDIO_FORMAT_AAC;
         } else if (info.format == JDvrAudioFormat.AUDIO_FORMAT_EAC3) {

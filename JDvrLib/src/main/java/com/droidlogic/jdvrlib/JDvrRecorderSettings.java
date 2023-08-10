@@ -33,13 +33,13 @@ public class JDvrRecorderSettings {
     }
     public static final class Builder {
         private int mStatusMask;
-        private long mLowThreshold = 100L;
-        private long mHighThreshold = 900L;
+        private long mLowThreshold = 250L;
+        private long mHighThreshold = 750L;
         private long mPacketSize = 188L;
         private int mDataFormat = DvrSettings.DATA_FORMAT_TS;
-        private int mRecorderBufferSize = 188 * 10 * 1000;
-        private int mFilterBufferSize = 188 * 1000;
-        private int mSegmentSize = 100 * 1024 * 1024;
+        private int mRecorderBufferSize = 188 * 32768;
+        private int mFilterBufferSize = 188 * 4096;
+        private int mSegmentSize = 30 * 1024 * 1024;
 
         public Builder setStatusMask(int statusMask) {
             this.mStatusMask = statusMask;

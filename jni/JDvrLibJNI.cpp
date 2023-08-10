@@ -18,11 +18,11 @@ AmDvr_registerJNI(JNIEnv *env)
     if (env == nullptr) {
         return JDVRLIB_JNI_ERR;
     }
-    JavaVM *jvm = nullptr;
-    jint ret = env->GetJavaVM(&jvm);
-    if (ret == JNI_OK) {
-        Loader::setJavaVM(jvm);
-    }
+    //JavaVM *jvm = nullptr;
+    //jint ret = env->GetJavaVM(&jvm);
+    //if (ret == JNI_OK) {
+    //    Loader::setJavaVM(jvm);
+    //}
     Loader::initJDvrLibJNI(env);
     return JDVRLIB_JNI_OK;
 }
@@ -37,12 +37,24 @@ AmDvr_File_create1(
     ALOGI("%s, enter",__func__);
     JNIEnv *env = Loader::getOrAttachJNIEnvironment();
     if (env == nullptr) {
-        ALOGE("Failed to get JNIEnv");
+        ALOGE("Failed to get JNIEnv* at %s:%d",__func__,__LINE__);
         return JDVRLIB_JNI_ERR;
     }
     jboolean jtrunc = (trunc ? JNI_TRUE : JNI_FALSE);
     auto handle = new JDvrFile(env->NewStringUTF(path_prefix),jtrunc);
     if (handle == nullptr) {
+        *phandle = nullptr;
+        return JDVRLIB_JNI_ERR;
+    }
+    if (env->ExceptionCheck()) {
+        jthrowable e = env->ExceptionOccurred();
+        env->ExceptionClear();
+        jclass eClass = env->GetObjectClass(e);
+        jmethodID toString = env->GetMethodID(eClass, "toString", "()Ljava/lang/String;");
+        jstring message = (jstring)env->CallObjectMethod(e, toString);
+        const char* cMessage = env->GetStringUTFChars(message, NULL);
+        ALOGE("A java exception happens while calling %s, message: %s",__func__,cMessage);
+        env->ReleaseStringUTFChars(message, cMessage);
         *phandle = nullptr;
         return JDVRLIB_JNI_ERR;
     }
@@ -62,12 +74,24 @@ AmDvr_File_create2(
     ALOGI("%s, enter",__func__);
     JNIEnv *env = Loader::getOrAttachJNIEnvironment();
     if (env == nullptr) {
-        ALOGE("Failed to get JNIEnv");
+        ALOGE("Failed to get JNIEnv* at %s:%d",__func__,__LINE__);
         return JDVRLIB_JNI_ERR;
     }
     jboolean jtrunc = (trunc ? JNI_TRUE : JNI_FALSE);
     auto handle = new JDvrFile(env->NewStringUTF(path_prefix),limit_size,limit_seconds,jtrunc);
     if (handle == nullptr) {
+        *phandle = nullptr;
+        return JDVRLIB_JNI_ERR;
+    }
+    if (env->ExceptionCheck()) {
+        jthrowable e = env->ExceptionOccurred();
+        env->ExceptionClear();
+        jclass eClass = env->GetObjectClass(e);
+        jmethodID toString = env->GetMethodID(eClass, "toString", "()Ljava/lang/String;");
+        jstring message = (jstring)env->CallObjectMethod(e, toString);
+        const char* cMessage = env->GetStringUTFChars(message, NULL);
+        ALOGE("A java exception happens while calling %s, message: %s",__func__,cMessage);
+        env->ReleaseStringUTFChars(message, cMessage);
         *phandle = nullptr;
         return JDVRLIB_JNI_ERR;
     }
@@ -84,11 +108,23 @@ AmDvr_File_create3(
     ALOGI("%s, enter",__func__);
     JNIEnv *env = Loader::getOrAttachJNIEnvironment();
     if (env == nullptr) {
-        ALOGE("Failed to get JNIEnv");
+        ALOGE("Failed to get JNIEnv* at %s:%d",__func__,__LINE__);
         return JDVRLIB_JNI_ERR;
     }
     auto handle = new JDvrFile(env->NewStringUTF(path_prefix));
     if (handle == nullptr) {
+        *phandle = nullptr;
+        return JDVRLIB_JNI_ERR;
+    }
+    if (env->ExceptionCheck()) {
+        jthrowable e = env->ExceptionOccurred();
+        env->ExceptionClear();
+        jclass eClass = env->GetObjectClass(e);
+        jmethodID toString = env->GetMethodID(eClass, "toString", "()Ljava/lang/String;");
+        jstring message = (jstring)env->CallObjectMethod(e, toString);
+        const char* cMessage = env->GetStringUTFChars(message, NULL);
+        ALOGE("A java exception happens while calling %s, message: %s",__func__,cMessage);
+        env->ReleaseStringUTFChars(message, cMessage);
         *phandle = nullptr;
         return JDVRLIB_JNI_ERR;
     }
@@ -108,6 +144,7 @@ AmDvr_File_destroy (
         return JDVRLIB_JNI_ERR;
     }
     JDvrFile* p = (JDvrFile*)*it;
+    p->close();
     ALOGD("%s, delete %p",__func__,p);
     delete p;
     vecDvrFiles.erase(it);
@@ -153,6 +190,21 @@ AmDvr_File_duration(
 }
 
 am_dvr_result
+AmDvr_File_duration2(
+        const uint8_t* path_prefix,
+        int64_t* pduration)
+{
+    ALOGI("%s, enter",__func__);
+    JNIEnv *env = Loader::getOrAttachJNIEnvironment();
+    if (env == nullptr) {
+        ALOGE("Failed to get JNIEnv* at %s:%d",__func__,__LINE__);
+        return JDVRLIB_JNI_ERR;
+    }
+    *pduration = JDvrFile::duration2(env->NewStringUTF((const char*)path_prefix));
+    return JDVRLIB_JNI_OK;
+}
+
+am_dvr_result
 AmDvr_File_size(
         am_dvr_file_handle handle,
         int64_t* psize)
@@ -168,6 +220,22 @@ AmDvr_File_size(
     }
     JDvrFile* p = (JDvrFile*)*it;
     *psize = p->size();
+    return JDVRLIB_JNI_OK;
+}
+
+am_dvr_result
+AmDvr_File_size2(
+        const uint8_t* path_prefix,
+        int64_t* psize)
+{
+    //ALOGI("%s, enter",__func__);
+    JNIEnv *env = Loader::getOrAttachJNIEnvironment();
+    if (env == nullptr) {
+        ALOGE("Failed to get JNIEnv* at %s:%d",__func__,__LINE__);
+        return JDVRLIB_JNI_ERR;
+    }
+    *psize = JDvrFile::size2(env->NewStringUTF((const char*)path_prefix));
+    ALOGI("%s, path:%s, size:%lldMB",__func__,path_prefix,*psize>>20);
     return JDVRLIB_JNI_OK;
 }
 
@@ -402,7 +470,7 @@ AmDvr_Recorder_create (
     ALOGD("%s, enter",__func__);
     JNIEnv *env = Loader::getOrAttachJNIEnvironment();
     if (env == nullptr) {
-        ALOGE("Failed to get JNIEnv");
+        ALOGE("Failed to get JNIEnv* at %s:%d",__func__,__LINE__);
         return JDVRLIB_JNI_ERR;
     }
     auto it = find(vecDvrFiles.begin(),vecDvrFiles.end(),params->jdvrfile_handle);
@@ -413,6 +481,18 @@ AmDvr_Recorder_create (
     JDvrFile* p = (JDvrFile*)*it;
     auto handle = new JDvrRecorder(params->tuner,p->getJObject(),params->settings,params->callback);
     if (handle == nullptr) {
+        *phandle = nullptr;
+        return JDVRLIB_JNI_ERR;
+    }
+    if (env->ExceptionCheck()) {
+        jthrowable e = env->ExceptionOccurred();
+        env->ExceptionClear();
+        jclass eClass = env->GetObjectClass(e);
+        jmethodID toString = env->GetMethodID(eClass, "toString", "()Ljava/lang/String;");
+        jstring message = (jstring)env->CallObjectMethod(e, toString);
+        const char* cMessage = env->GetStringUTFChars(message, NULL);
+        ALOGE("A java exception happens while calling %s, message: %s",__func__,cMessage);
+        env->ReleaseStringUTFChars(message, cMessage);
         *phandle = nullptr;
         return JDVRLIB_JNI_ERR;
     }
@@ -451,8 +531,8 @@ AmDvr_Recorder_addStream (
         return JDVRLIB_JNI_ERR;
     }
     JDvrRecorder* p = (JDvrRecorder*)*it;
-    int ret = p->addStream(pid,(int)type,format);
-    return (ret == 0) ? JDVRLIB_JNI_OK : JDVRLIB_JNI_ERR;
+    bool ret = p->addStream(pid,(int)type,format);
+    return ret ? JDVRLIB_JNI_OK : JDVRLIB_JNI_ERR;
 }
 
 am_dvr_result
@@ -466,8 +546,8 @@ AmDvr_Recorder_removeStream (
         return JDVRLIB_JNI_ERR;
     }
     JDvrRecorder* p = (JDvrRecorder*)*it;
-    int ret = p->removeStream(pid);
-    return (ret == 0) ? JDVRLIB_JNI_OK : JDVRLIB_JNI_ERR;
+    bool ret = p->removeStream(pid);
+    return ret ? JDVRLIB_JNI_OK : JDVRLIB_JNI_ERR;
 }
 
 am_dvr_result
@@ -524,7 +604,7 @@ AmDvr_Player_create (
     ALOGD("%s, enter",__func__);
     JNIEnv *env = Loader::getOrAttachJNIEnvironment();
     if (env == nullptr) {
-        ALOGE("Failed to get JNIEnv");
+        ALOGE("Failed to get JNIEnv* at %s:%d",__func__,__LINE__);
         return JDVRLIB_JNI_ERR;
     }
     auto it = find(vecDvrFiles.begin(),vecDvrFiles.end(),params->jdvrfile_handle);
@@ -533,8 +613,21 @@ AmDvr_Player_create (
         return JDVRLIB_JNI_ERR;
     }
     JDvrFile* p = (JDvrFile*)*it;
-    auto handle = new JDvrPlayer(params->asplayer,p->getJObject(),params->settings,params->callback);
+    auto handle = new JDvrPlayer(params->tuner,p->getJObject(),params->settings,params->callback,
+            params->surface);
     if (handle == nullptr) {
+        *phandle = nullptr;
+        return JDVRLIB_JNI_ERR;
+    }
+    if (env->ExceptionCheck()) {
+        jthrowable e = env->ExceptionOccurred();
+        env->ExceptionClear();
+        jclass eClass = env->GetObjectClass(e);
+        jmethodID toString = env->GetMethodID(eClass, "toString", "()Ljava/lang/String;");
+        jstring message = (jstring)env->CallObjectMethod(e, toString);
+        const char* cMessage = env->GetStringUTFChars(message, NULL);
+        ALOGE("A java exception happens while calling %s, message: %s",__func__,cMessage);
+        env->ReleaseStringUTFChars(message, cMessage);
         *phandle = nullptr;
         return JDVRLIB_JNI_ERR;
     }
@@ -571,8 +664,8 @@ AmDvr_Player_play (
         return JDVRLIB_JNI_ERR;
     }
     JDvrPlayer* p = (JDvrPlayer*)*it;
-    int ret = p->play();
-    return (ret == 0) ? JDVRLIB_JNI_OK : JDVRLIB_JNI_ERR;
+    bool ret = p->play();
+    return ret ? JDVRLIB_JNI_OK : JDVRLIB_JNI_ERR;
 }
 
 am_dvr_result
@@ -586,8 +679,8 @@ AmDvr_Player_pause (
         return JDVRLIB_JNI_ERR;
     }
     JDvrPlayer* p = (JDvrPlayer*)*it;
-    int ret = p->pause();
-    return (ret == 0) ? JDVRLIB_JNI_OK : JDVRLIB_JNI_ERR;
+    bool ret = p->pause();
+    return ret ? JDVRLIB_JNI_OK : JDVRLIB_JNI_ERR;
 }
 
 am_dvr_result
@@ -601,8 +694,8 @@ AmDvr_Player_stop (
         return JDVRLIB_JNI_ERR;
     }
     JDvrPlayer* p = (JDvrPlayer*)*it;
-    int ret = p->stop();
-    return (ret == 0) ? JDVRLIB_JNI_OK : JDVRLIB_JNI_ERR;
+    bool ret = p->stop();
+    return ret ? JDVRLIB_JNI_OK : JDVRLIB_JNI_ERR;
 }
 
 am_dvr_result
@@ -616,8 +709,8 @@ AmDvr_Player_seek (
         return JDVRLIB_JNI_ERR;
     }
     JDvrPlayer* p = (JDvrPlayer*)*it;
-    int ret = p->seek(seconds);
-    return (ret == 0) ? JDVRLIB_JNI_OK : JDVRLIB_JNI_ERR;
+    bool ret = p->seek(seconds);
+    return ret ? JDVRLIB_JNI_OK : JDVRLIB_JNI_ERR;
 }
 
 am_dvr_result
@@ -631,8 +724,8 @@ AmDvr_Player_setSpeed (
         return JDVRLIB_JNI_ERR;
     }
     JDvrPlayer* p = (JDvrPlayer*)*it;
-    int ret = p->setSpeed(speed);
-    return (ret == 0) ? JDVRLIB_JNI_OK : JDVRLIB_JNI_ERR;
+    bool ret = p->setSpeed(speed);
+    return ret ? JDVRLIB_JNI_OK : JDVRLIB_JNI_ERR;
 }
 
 am_dvr_result
@@ -641,7 +734,7 @@ AmDvr_deleteRecord (const char *path_prefix)
     ALOGI("%s, enter",__func__);
     JNIEnv *env = Loader::getOrAttachJNIEnvironment();
     if (env == nullptr) {
-        ALOGE("Failed to get JNIEnv");
+        ALOGE("Failed to get JNIEnv* at %s:%d",__func__,__LINE__);
         return JDVRLIB_JNI_ERR;
     }
     bool ret = JDvrFile::remove(env->NewStringUTF(path_prefix));

@@ -57,6 +57,8 @@ typedef void (*on_player_event_callback)(am_dvr_player_handle,am_dvr_player_even
 
 /**Recording progress information. It will be provided with AM_DVR_RECORDER_EVENT_PROGRESS event*/
 typedef struct {
+    int         sessionNumber;
+    int         state;
     long long   duration;       // in ms
     long long   startTime;      // in ms
     long long   endTime;        // in ms
@@ -68,6 +70,9 @@ typedef struct {
 
 /**Playback progress information. It will be provided with AM_DVR_PLAYER_EVENT_PROGRESS event*/
 typedef struct {
+    int         sessionNumber;
+    int         state;
+    double      speed;
     long long   currTime;       // in ms
     long long   startTime;      // in ms
     long long   endTime;        // in ms

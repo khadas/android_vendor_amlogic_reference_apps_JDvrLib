@@ -4,8 +4,8 @@ import android.media.tv.tuner.Tuner;
 import android.media.tv.tuner.dvr.DvrRecorder;
 import android.media.tv.tuner.dvr.OnRecordStatusChangedListener;
 import android.media.tv.tuner.filter.AvSettings;
-import android.media.tv.tuner.filter.FilterCallback;
 import android.media.tv.tuner.filter.Filter;
+import android.media.tv.tuner.filter.FilterCallback;
 import android.media.tv.tuner.filter.FilterConfiguration;
 import android.media.tv.tuner.filter.FilterEvent;
 import android.media.tv.tuner.filter.RecordSettings;
@@ -19,14 +19,14 @@ import android.os.StatFs;
 import android.os.SystemClock;
 import android.util.Log;
 
+import com.droidlogic.jdvrlib.OnJDvrRecorderEventListener.JDvrRecorderEvent;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
-
-import com.droidlogic.jdvrlib.OnJDvrRecorderEventListener.JDvrRecorderEvent;
 
 public class JDvrRecorder {
     private static class JDvrRecordingSession {
@@ -85,6 +85,7 @@ public class JDvrRecorder {
         private boolean mHaveSentIOErrorNotify = false;
         private boolean mDiskFull = false;
         private boolean mHaveSentDiskFullNotify = false;
+        private boolean mBufferOverflow = false;
         private final ArrayList<JDvrStreamInfo> mStreams = new ArrayList<>();
         private final ArrayList<JDvrStreamInfo> mStreamsPending = new ArrayList<>();
         private final ArrayList<TsRecordEvent> mTsDataToProcess = new ArrayList<>();
@@ -125,6 +126,7 @@ public class JDvrRecorder {
     public static class JDvrAudioFormat {
         public final static int AUDIO_FORMAT_UNDEFINED = AvSettings.AUDIO_STREAM_TYPE_UNDEFINED;
         public final static int AUDIO_FORMAT_MPEG = AvSettings.AUDIO_STREAM_TYPE_MPEG1;
+        public final static int AUDIO_FORMAT_MPEG2 = AvSettings.AUDIO_STREAM_TYPE_MPEG2;
         public final static int AUDIO_FORMAT_AC3 = AvSettings.AUDIO_STREAM_TYPE_AC3;
         public final static int AUDIO_FORMAT_EAC3 = AvSettings.AUDIO_STREAM_TYPE_EAC3;
         public final static int AUDIO_FORMAT_DTS = AvSettings.AUDIO_STREAM_TYPE_DTS;
@@ -168,6 +170,8 @@ public class JDvrRecorder {
         }
     }
     public static class JDvrRecordingProgress {
+        public int sessionNumber;
+        public int state;
         public long duration;   // in ms
         public long startTime;  // in ms
         public long endTime;    // in ms
@@ -177,13 +181,17 @@ public class JDvrRecorder {
         public long size;
         @Override
         public String toString() {
-            return "{\"duration\":" + duration +
+            return "{" +
+                    "\"sessionNumber\":" + sessionNumber +
+                    ", \"state\":" + state +
+                    ", \"duration\":" + duration +
                     ", \"startTime\":" + startTime +
                     ", \"endTime\":" + endTime +
                     ", \"numberOfSegments\":" + numberOfSegments +
                     ", \"firstSegmentId\":" + firstSegmentId +
                     ", \"lastSegmentId\":" + lastSegmentId +
-                    ", \"size\":" + size + '}';
+                    ", \"size\":" + size +
+                    '}';
         }
     }
 
@@ -201,7 +209,7 @@ public class JDvrRecorder {
 
     // Member Variables
     private final JDvrRecordingSession mSession = new JDvrRecordingSession();
-    final private String TAG = getLogTAG();
+    private final String TAG = getLogTAG();
     private final Tuner mTuner;
     private DvrRecorder mDvrRecorder = null;
     private final JDvrRecorderSettings mSettings;
@@ -212,6 +220,7 @@ public class JDvrRecorder {
     private final Object mOnJDvrRecorderEventLock = new Object();
     private final Handler mRecordingHandler;
     private final JDvrFile mJDvrFile;
+    private TsRecordEvent mLastEvent = null;
 
     // Callbacks
     private final Handler.Callback mRecordingCallback = new Handler.Callback() {
@@ -225,8 +234,6 @@ public class JDvrRecorder {
             if (message.what == JDvrRecordingStatus.STREAM_STATUS_PID_CHANGED) {
                 mSession.mStreamsPending.add((JDvrStreamInfo) message.obj);
                 mSession.mPidChanged = true;
-                // Take immediate action on PID changing
-                mRecordingHandler.postAtFrontOfQueue(mStateMachineRunnable);
             } else if (message.what == JDvrRecordingStatus.CONTROLLER_STATUS_TO_START) {
                 if (isCmdInProgress()) {
                     Log.i(TAG, "Just ignore this command as another command is in progress");
@@ -263,12 +270,11 @@ public class JDvrRecorder {
             for (FilterEvent event : filterEvents) {
                 if (event instanceof TsRecordEvent) {
                     TsRecordEvent recordEvent = (TsRecordEvent) event;
-                    final int dataLength = (int)recordEvent.getDataLength();
-                    if (dataLength>0 && recordEvent.getPts() != 0) {
+                    if (recordEvent.getPts() >= 0) {
                         mSession.mTimestampOfLastDataReception = SystemClock.elapsedRealtime();
                         mSession.mTimestampForStreamOffReference = mSession.mTimestampOfLastDataReception;
                         mSession.mTsDataToProcess.add(recordEvent);
-                        //Log.d(TAG,"pts:"+recordEvent.getPts()/90);
+                        //Log.d(TAG,"pts:"+recordEvent.getPts());
                     }
                 }
             }
@@ -282,6 +288,11 @@ public class JDvrRecorder {
     private final OnRecordStatusChangedListener mRecordStatusChangedListener = (status) -> {
         if (status == Filter.STATUS_DATA_READY) {
             Log.d(TAG, "onRecordStatusChanged status: STATUS_DATA_READY");
+        } else if (status == Filter.STATUS_OVERFLOW) {
+            Log.e(TAG, "onRecordStatusChanged status: STATUS_OVERFLOW");
+            mSession.mBufferOverflow = true;
+        } else if (status == Filter.STATUS_HIGH_WATER) {
+            Log.w(TAG, "onRecordStatusChanged status: STATUS_HIGH_WATER");
         }
     };
     private void updateState() {
@@ -317,7 +328,8 @@ public class JDvrRecorder {
             final boolean cond3 = mSession.mControllerToPause;
             final boolean cond4 = mSession.mIOError;
             final boolean cond5 = mSession.mDiskFull;
-            if (cond1) {
+            final boolean cond6 = mSession.mBufferOverflow; // this overflow error seems not recoverable, so reluctantly end recording
+            if (cond1 || cond6) {
                 Log.i(TAG,"State transition: STARTED => STOPPING");
                 mSession.mState = JDvrRecordingSession.STOPPING_STATE;
             } else if (cond2 || cond3 || cond4 || cond5) {
@@ -371,7 +383,9 @@ public class JDvrRecorder {
             Log.e(TAG, "Tuner is invalid");
             return;
         }
+        Log.i(TAG, "RecorderBufferSize given is "+mSettings.mRecorderBufferSize);
         if (mDvrRecorder == null) {
+            Log.d(TAG,"calling Tuner.openDvrRecorder()");
             mDvrRecorder = mTuner.openDvrRecorder(
                     mSettings.mRecorderBufferSize,
                     mRecorderExecutor,
@@ -388,6 +402,7 @@ public class JDvrRecorder {
             handlingPidChanges();
         }
         if (mSession.mControllerToStart) {
+            Log.d(TAG,"calling DvrRecorder.start()");
             int result = mDvrRecorder.start();
             if (result == Tuner.RESULT_SUCCESS) {
                 mSession.mIsStarting = true;
@@ -404,6 +419,7 @@ public class JDvrRecorder {
     private void handlingStartingState() {
         if (mSession.mControllerToStart) {
             mFilters.forEach((pid,filter) -> {
+                Log.d(TAG,"calling Filter.start() for pid:"+pid);
                 int result = filter.start();
                 if (result != Tuner.RESULT_SUCCESS) {
                     Log.e(TAG, "Filter.start() on PID " + pid + " fails. return value: "+result);
@@ -413,21 +429,20 @@ public class JDvrRecorder {
         }
     }
     private void handlingStartedState() {
+        final long curTs = SystemClock.elapsedRealtime();
         final int size = mSession.mTsDataToProcess.size();
-        for (int i=0; i<size; i+=100) {
-            final long curTs = SystemClock.elapsedRealtime();
-            final int dataLength = (int)mSession.mTsDataToProcess.stream()
-                    .skip(i).limit(100).mapToLong(TsRecordEvent::getDataLength).sum();
-            byte[] buffer = new byte [dataLength];
-            int sum = 0;
-            for ( TsRecordEvent event : mSession.mTsDataToProcess.subList(i,Math.min(i+100,size))) {
-                sum += mDvrRecorder.write(buffer,sum,event.getDataLength());
+        if (size > 0) {
+            if (mLastEvent == null) {
+                mLastEvent = mSession.mTsDataToProcess.get(0);
             }
-            if (dataLength != sum) {
-                Log.w(TAG,"dataLength "+dataLength+" and sum "+sum+" don't match");
-            }
+            TsRecordEvent lastEvent = mSession.mTsDataToProcess.get(size-1);
+            final int len = (int)(lastEvent.getDataLength() - mLastEvent.getDataLength());
+            mLastEvent = lastEvent;
+            //Log.d(TAG,"delta:"+len+", getDataLength:"+mLastEvent.getDataLength());
+            byte[] buffer = new byte[len];
+            final int sum = (int)mDvrRecorder.write(buffer, 0, len);
             if (sum > 0 && !mSession.mIOError) {
-                final long pts = mSession.mTsDataToProcess.get(i).getPts();
+                final long pts = mLastEvent.getPts();
                 try {
                     mJDvrFile.write(buffer, 0, sum, pts);
                 } catch (Exception e) {
@@ -452,6 +467,7 @@ public class JDvrRecorder {
         if (mSession.mControllerToExit) {
             mFilters.forEach((pid,filter) -> {
                 try {
+                    Log.d(TAG,"calling Filter.stop() for pid:"+pid);
                     if (filter.stop() != Tuner.RESULT_SUCCESS) {
                         Log.e(TAG, "Filter.stop() on PID " + pid + " fails.");
                     }
@@ -460,6 +476,7 @@ public class JDvrRecorder {
                     e.printStackTrace();
                 }
             });
+            Log.d(TAG,"calling DvrRecorder.stop()");
             int result = mDvrRecorder.stop();
             if (result != Tuner.RESULT_SUCCESS) {
                 Log.e(TAG, "DvrRecorder.stop() fails. return value: " + result);
@@ -468,12 +485,13 @@ public class JDvrRecorder {
         }
     }
     private void handlingStoppingState() {
-        if (mSession.mControllerToExit) {
+        if (mSession.mControllerToExit || mSession.mBufferOverflow) {
             for (Map.Entry<Integer, Filter> entry : mFilters.entrySet()) {
                 entry.getValue().close();
             }
             mFilters.clear();
             try {
+                Log.d(TAG,"calling DvrRecorder.close()");
                 mDvrRecorder.close();
             } catch (IllegalStateException e) {
                 Log.e(TAG, "Exception: " + e);
@@ -488,12 +506,18 @@ public class JDvrRecorder {
         }
     }
     private void handlingPausedState() {
-        mSession.mTsDataToProcess.forEach(event -> {
-            final int dataLength = (int) event.getDataLength();
-            byte[] buffer = new byte[dataLength];
-            mDvrRecorder.write(buffer, 0, dataLength);
+        final int size = mSession.mTsDataToProcess.size();
+        if (size > 0) {
+            if (mLastEvent == null) {
+                mLastEvent = mSession.mTsDataToProcess.get(0);
+            }
+            TsRecordEvent lastEvent = mSession.mTsDataToProcess.get(size-1);
+            final int len = (int)(lastEvent.getDataLength() - mLastEvent.getDataLength());
+            mLastEvent = lastEvent;
+            byte[] buffer = new byte[len];
+            mDvrRecorder.write(buffer, 0, len);
             // In Paused state, it just discards coming data, so there is no further handling of the data
-        });
+        }
         mSession.mTsDataToProcess.clear();
         if (mSession.mControllerToStart) {
             mSession.mControllerToPause = false;
@@ -543,6 +567,7 @@ public class JDvrRecorder {
             Log.w(TAG,"Trying to handle PID changes but status variable mPidChanged indicates there is no change");
             return;
         }
+        Log.d(TAG,"StreamPending before: "+(mSession.mStreamsPending.size()>0 ? mSession.mStreamsPending.stream().map(JDvrStreamInfo::toString2).collect(Collectors.joining(", ")) : "null"));
         Log.d(TAG,"Streams before: "+(mSession.mStreams.size()>0 ? mSession.mStreams.stream().map(JDvrStreamInfo::toString2).collect(Collectors.joining(", ")) : "null"));
         // 1. Add new PIDs and adjust flags
         mSession.mStreamsPending.forEach(stream -> {
@@ -751,20 +776,6 @@ public class JDvrRecorder {
             mSession.mDiskFull = diskAvailable <= 0;
         }
     };
-    private final Runnable mFilesUpdaterRunnable = new Runnable() {
-        final static long updateInterval = 5000L;  // in ms
-        public void run() {
-            mRecordingHandler.removeCallbacks(this);
-            try {
-                mRecordingHandler.postDelayed(this, updateInterval);
-            } catch (IllegalStateException e) {
-                Log.e(TAG, "Exception: " + e);
-                e.printStackTrace();
-                return;
-            }
-            mJDvrFile.updateListFile();
-        }
-    };
 
     // Public APIs
     /**
@@ -781,7 +792,7 @@ public class JDvrRecorder {
                         Executor executor, OnJDvrRecorderEventListener listener) {
         mTuner = tuner;
         mJDvrFile = file;
-        mSettings = settings;
+        mSettings = (settings == null) ? JDvrRecorderSettings.builder().build() : settings;
         synchronized (mOnJDvrRecorderEventLock) {
             mListenerExecutor = ((executor != null) ? executor : mRecorderExecutor);
             mListener = ((listener != null) ? listener : new JNIJDvrRecorderListener(this));
@@ -790,7 +801,6 @@ public class JDvrRecorder {
         mRecordingHandler = new Handler(mRecordingThread.getLooper(), mRecordingCallback);
         mRecordingHandler.post(mStateMachineRunnable);
         mRecordingHandler.post(mDiskSpaceCheckerRunnable);
-        mRecordingHandler.post(mFilesUpdaterRunnable);
     }
     /**
      * Add a stream to be recorded.
@@ -897,6 +907,8 @@ public class JDvrRecorder {
     }
     private void notifyProgress() {
         JDvrRecordingProgress progress = new JDvrRecordingProgress();
+        progress.sessionNumber = mSession.mSessionNumber;
+        progress.state = mSession.mState;
         progress.duration = mJDvrFile.duration();
         progress.startTime = mJDvrFile.getStartTime();
         progress.endTime = progress.startTime + progress.duration;

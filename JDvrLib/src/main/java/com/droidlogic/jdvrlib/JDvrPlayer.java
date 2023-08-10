@@ -2,25 +2,39 @@ package com.droidlogic.jdvrlib;
 
 import static com.amlogic.asplayer.api.ASPlayer.INFO_BUSY;
 
+import android.media.tv.tuner.Tuner;
+import android.media.tv.tuner.filter.AvSettings;
+import android.media.tv.tuner.filter.Filter;
+import android.media.tv.tuner.filter.FilterCallback;
+import android.media.tv.tuner.filter.FilterConfiguration;
+import android.media.tv.tuner.filter.FilterEvent;
+import android.media.tv.tuner.filter.Settings;
+import android.media.tv.tuner.filter.TsFilterConfiguration;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Message;
 import android.os.SystemClock;
 import android.util.Log;
 import android.util.Pair;
+import android.view.Surface;
+
+import com.amlogic.asplayer.api.ASPlayer;
+import com.amlogic.asplayer.api.AudioParams;
+import com.amlogic.asplayer.api.EventMask;
+import com.amlogic.asplayer.api.InitParams;
+import com.amlogic.asplayer.api.InputBuffer;
+import com.amlogic.asplayer.api.InputSourceType;
+import com.amlogic.asplayer.api.TsPlaybackListener;
+import com.amlogic.asplayer.api.VideoParams;
+import com.amlogic.asplayer.api.VideoTrickMode;
+import com.droidlogic.jdvrlib.JDvrRecorder.JDvrAudioFormat;
+import com.droidlogic.jdvrlib.JDvrRecorder.JDvrVideoFormat;
+import com.droidlogic.jdvrlib.OnJDvrPlayerEventListener.JDvrPlayerEvent;
 
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.concurrent.Executor;
-
-import com.amlogic.asplayer.api.ASPlayer;
-import com.amlogic.asplayer.api.InputBuffer;
-import com.amlogic.asplayer.api.InputBufferType;
-import com.amlogic.asplayer.api.TsPlaybackListener;
-
-import com.amlogic.asplayer.api.VideoTrickMode;
-import com.droidlogic.jdvrlib.OnJDvrPlayerEventListener.JDvrPlayerEvent;
 
 public class JDvrPlayer {
     private static class JDvrPlaybackSession {
@@ -67,6 +81,9 @@ public class JDvrPlayer {
         public final static int CONTROLLER_STATUS_TO_SEEK   = 5;
     }
     public static class JDvrPlaybackProgress {
+        public int sessionNumber;
+        public int state;
+        public double speed;
         public long currTime;    // in ms
         public long startTime;   // in ms
         public long endTime;     // in ms
@@ -78,7 +95,10 @@ public class JDvrPlayer {
         @Override
         public String toString() {
             return "{" +
-                    "\"currTime\":" + currTime +
+                    "\"sessionNumber\":" + sessionNumber +
+                    ", \"state\":" + state +
+                    ", \"speed\":" + speed +
+                    ", \"currTime\":" + currTime +
                     ", \"startTime\":" + startTime +
                     ", \"endTime\":" + endTime +
                     ", \"duration\":" + duration +
@@ -94,11 +114,13 @@ public class JDvrPlayer {
     private final static int interval1 = 1000;   // in ms
     private final JDvrPlaybackSession mSession = new JDvrPlaybackSession();
     final private String TAG = getLogTAG();
+    private final Tuner mTuner;
     private final ASPlayer mASPlayer;
     private JDvrFile mJDvrFile;
     private final JDvrPlayerSettings mSettings;
     private final Executor mListenerExecutor;
     private final OnJDvrPlayerEventListener mListener;
+    private final Surface mSurface;
     private final HandlerThread mPlaybackThread = new HandlerThread("JDvrPlayer task");
     private final Handler mPlaybackHandler;
     private final Object mOnJDvrPlayerEventLock = new Object();
@@ -109,6 +131,7 @@ public class JDvrPlayer {
     private long mLastPts = 0L;     // Original PTS in 90KHz
     private long mEndTime = 0L;
     private long mPlayingTime = 0L;
+    private int mAvHwSyncId = -1;
 
     // Callbacks
     private final Handler.Callback mPlaybackCallback = message -> {
@@ -200,7 +223,7 @@ public class JDvrPlayer {
                 final int limitDuration = mJDvrFile.getLimitDuration();     // in sec
                 final long currSize = mJDvrFile.size();                     // in bytes
                 final int currDuration = (int)(mJDvrFile.duration()/1000);  // in sec
-                final int rate = (int)(currSize/currDuration);              // in bytes/sec
+                final int rate = (currDuration > 0) ? (int)(currSize/currDuration) : 0; // in bytes/sec
                 final boolean cond1 = JDvrFile.isEffectiveLimitSize(limitSize) || JDvrFile.isEffectiveLimitDuration(limitDuration);
                 final boolean cond2 = (idCurr == idFirst);
                 final boolean cond3 = (limitDuration - currDuration <= 5);
@@ -269,20 +292,29 @@ public class JDvrPlayer {
      * Constructs a JDvrPlayer instance.
      * It results in the running of playback thread and corresponding state machine.
      *
-     * @param player An ASPlayer instance.
+     * @param tuner A Tuner instance.
      * @param file A JDvrFile instance.
      * @param settings A JDvrPlayerSettings instance.
      * @param executor An Executor instance that executes submitted Runnable tasks.
      * @param listener An OnJDvrPlayerEventListener instance for receiving JDvrPlayer notifications.
      */
-    public JDvrPlayer(ASPlayer player, JDvrFile file, JDvrPlayerSettings settings,
-                      Executor executor, OnJDvrPlayerEventListener listener) {
-        mASPlayer = player;
+    public JDvrPlayer(Tuner tuner, JDvrFile file, JDvrPlayerSettings settings,
+                      Executor executor, OnJDvrPlayerEventListener listener, Surface surface) {
+        Log.d(TAG,"JDvrPlayer.ctor");
+        mTuner = tuner;
+        InitParams initParams = new InitParams.Builder()
+                .setPlaybackMode(InitParams.PLAYBACK_MODE_PASSTHROUGH)
+                .setInputSourceType(InputSourceType.TS_MEMORY)
+                .setEventMask(EventMask.EVENT_TYPE_PTS_MASK)
+                .build();
+        mASPlayer = new ASPlayer(initParams, mTuner, null);
+        mASPlayer.prepare();
         mJDvrFile = file;
-        mSettings = settings;
+        mSettings = (settings == null) ? JDvrPlayerSettings.builder().build() : settings;
         mListenerExecutor = ((executor != null) ? executor : mPlayerExecutor);
         mListener = ((listener != null) ? listener : new JNIJDvrPlayerListener(this));
-        Log.d(TAG,"JDvrPlayer.ctor");
+        mSurface = surface;
+        mASPlayer.setSurface(mSurface);
         mASPlayer.addPlaybackListener(mTsPlaybackListener);
         mASPlayer.flushDvr();
         mPlaybackThread.start();
@@ -467,6 +499,63 @@ public class JDvrPlayer {
     }
     private void handlingInitialState() {
         if (mSession.mControllerToStart) {
+            boolean invalidVideo = false;
+            final int videoPid = mJDvrFile.getVideoPID();
+            final int videoFormat = mJDvrFile.getVideoFormat();
+            if (videoPid == 0x1fff || videoFormat == JDvrVideoFormat.VIDEO_FORMAT_UNDEFINED) {
+                Log.e(TAG, "Invalid video PID or video format");
+                invalidVideo = true;
+            }
+            Log.d(TAG,"video pid:"+videoPid+", video format:"+videoFormat);
+            final int audioPid = mJDvrFile.getAudioPID();
+            final int audioFormat = mJDvrFile.getAudioFormat();
+            if (audioPid == 0x1fff || audioFormat == JDvrAudioFormat.AUDIO_FORMAT_UNDEFINED) {
+                Log.e(TAG, "Invalid audio PID or audio format");
+                if (invalidVideo) {
+                    return;
+                }
+            }
+            Log.d(TAG,"audio pid:"+audioPid+", audio format:"+audioFormat);
+            if (!invalidVideo) {
+                Filter videoFilter = openVideoFilter(videoPid, videoFormat);
+                if (videoFilter == null) {
+                    Log.e(TAG, "Failed to create video filter");
+                    return;
+                }
+                videoFilter.start();
+                final int width = 1920;
+                final int height = 1080;
+                mAvHwSyncId = mTuner.getAvSyncHwId(videoFilter);
+                Log.d(TAG,"AvHwSyncId from video filter:"+mAvHwSyncId);
+                if (mAvHwSyncId == -1) {
+                    Log.e(TAG, "AvSyncHwId is invalid");
+                    return;
+                }
+                VideoParams videoParams = new VideoParams.Builder(mJDvrFile.getVideoMIMEType(), width, height)
+                        .setPid(videoPid)
+                        .setTrackFilterId((int) videoFilter.getIdLong())
+                        .setAvSyncHwId(mAvHwSyncId)
+                        .build();
+                mASPlayer.setVideoParams(videoParams);
+            }
+
+            Filter audioFilter = openAudioFilter(audioPid,audioFormat);
+            if (audioFilter == null) {
+                Log.e(TAG,"Failed to create audio filter");
+                return;
+            }
+            audioFilter.start();
+            if (invalidVideo) {
+                mAvHwSyncId = mTuner.getAvSyncHwId(audioFilter);
+                Log.d(TAG,"AvHwSyncId from audio filter:"+mAvHwSyncId);
+            }
+            AudioParams audioParams = new AudioParams.Builder(mJDvrFile.getAudioMIMEType(), 48000, 2)
+                    .setPid(audioPid)
+                    .setTrackFilterId((int)audioFilter.getIdLong())
+                    .setAvSyncHwId(mAvHwSyncId)
+                    .build();
+            mASPlayer.setAudioParams(audioParams);
+
             mASPlayer.flushDvr();
             Log.d(TAG,"calling ASPlayer.startVideoDecoding at "+getCallerInfo(3));
             if (mASPlayer.startVideoDecoding() < 0) {
@@ -492,7 +581,6 @@ public class JDvrPlayer {
         final boolean cond1 = (-1 == injectData());
         final boolean cond2 = !mSession.mRecordingIsUpdatedLately;
         if (cond1 && cond2) {
-            Log.d(TAG,"set EOS true 1");
             mSession.mIsEOS = true;
         }
     }
@@ -727,7 +815,7 @@ public class JDvrPlayer {
             if (len == 0 || len == -1) {
                 return len;
             }
-            inputBuffer = new InputBuffer(InputBufferType.NORMAL,buffer,0,len);
+            inputBuffer = new InputBuffer(buffer,0,len);
         } else {
             inputBuffer = mPendingInputBuffer;
         }
@@ -769,7 +857,11 @@ public class JDvrPlayer {
         return true;
     }
     private void notifyProgress() {
+        //Log.d(TAG,"JDvrPlayer.notifyProgress");
         JDvrPlaybackProgress progress = new JDvrPlaybackProgress();
+        progress.sessionNumber = mSession.mSessionNumber;
+        progress.state = mSession.mState;
+        progress.speed = mSession.mCurrentSpeed;
         progress.duration = mJDvrFile.duration();
         progress.startTime = mJDvrFile.getStartTime();
         progress.endTime = progress.startTime + progress.duration;
@@ -796,5 +888,53 @@ public class JDvrPlayer {
             return;
         }
         mSession.mRecordingIsUpdatedLately = !mLastModifiedRecords.stream().allMatch(p -> p.second == lastModified);
+    }
+    private Filter openVideoFilter(int pid, int format) {
+        long bufferSize = 1024 * 1024 * 4;
+        Filter filter = mTuner.openFilter(Filter.TYPE_TS, Filter.SUBTYPE_VIDEO, bufferSize, mPlayerExecutor, new FilterCallback() {
+            @Override
+            public void onFilterEvent(Filter filter, FilterEvent[] events) {
+            }
+            @Override
+            public void onFilterStatusChanged(Filter filter, int status) {
+            }
+        });
+        if (filter == null) {
+            return null;
+        }
+        AvSettings settings = AvSettings.builder(Filter.TYPE_TS, false)
+                .setPassthrough(true)
+                .setVideoStreamType(format)
+                .build();
+        FilterConfiguration filterConfiguration = TsFilterConfiguration.builder()
+                .setTpid(pid)
+                .setSettings(settings)
+                .build();
+        filter.configure(filterConfiguration);
+        return filter;
+    }
+    private Filter openAudioFilter(int pid, int format) {
+        long bufferSize = 1024 * 1024 * 2;
+        Filter filter = mTuner.openFilter(Filter.TYPE_TS, Filter.SUBTYPE_AUDIO, bufferSize, mPlayerExecutor, new FilterCallback() {
+            @Override
+            public void onFilterEvent(Filter filter, FilterEvent[] events) {
+            }
+            @Override
+            public void onFilterStatusChanged(Filter filter, int status) {
+            }
+        });
+        if (filter == null) {
+            return null;
+        }
+        Settings settings = AvSettings.builder(Filter.TYPE_TS, true)
+                .setPassthrough(true)
+                .setAudioStreamType(format)
+                .build();
+        FilterConfiguration filterConfiguration = TsFilterConfiguration.builder()
+                .setTpid(pid)
+                .setSettings(settings)
+                .build();
+        filter.configure(filterConfiguration);
+        return filter;
     }
 }

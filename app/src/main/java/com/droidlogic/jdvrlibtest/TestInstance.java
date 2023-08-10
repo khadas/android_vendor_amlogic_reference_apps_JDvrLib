@@ -12,12 +12,11 @@ import android.media.tv.tuner.filter.FilterConfiguration;
 import android.media.tv.tuner.filter.FilterEvent;
 import android.media.tv.tuner.filter.Settings;
 import android.media.tv.tuner.filter.TsFilterConfiguration;
+import android.media.tv.tuner.frontend.Atsc3PlpInfo;
 import android.media.tv.tuner.frontend.DvbcFrontendSettings;
 import android.media.tv.tuner.frontend.FrontendSettings;
 import android.media.tv.tuner.frontend.OnTuneEventListener;
 import android.media.tv.tuner.frontend.ScanCallback;
-import android.media.tv.tuner.frontend.Atsc3PlpInfo;
-
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
@@ -25,31 +24,23 @@ import android.os.Message;
 import android.util.Log;
 import android.view.Surface;
 
-import java.io.File;
-import java.util.Arrays;
-import java.util.Locale;
-import java.util.concurrent.Executor;
-
-import com.amlogic.asplayer.api.AudioParams;
-import com.amlogic.asplayer.api.EventMask;
-import com.amlogic.asplayer.api.VideoParams;
-import com.amlogic.asplayer.api.ASPlayer;
-import com.amlogic.asplayer.api.InitParams;
-import com.amlogic.asplayer.api.InputBufferType;
-import com.amlogic.asplayer.api.InputSourceType;
-
+import com.droidlogic.jdvrlib.JDvrFile;
 import com.droidlogic.jdvrlib.JDvrPlayer;
 import com.droidlogic.jdvrlib.JDvrPlayer.JDvrPlaybackProgress;
 import com.droidlogic.jdvrlib.JDvrPlayerSettings;
 import com.droidlogic.jdvrlib.JDvrRecorder;
-import com.droidlogic.jdvrlib.JDvrRecorder.JDvrStreamType;
-import com.droidlogic.jdvrlib.JDvrRecorder.JDvrVideoFormat;
 import com.droidlogic.jdvrlib.JDvrRecorder.JDvrAudioFormat;
 import com.droidlogic.jdvrlib.JDvrRecorder.JDvrRecordingProgress;
+import com.droidlogic.jdvrlib.JDvrRecorder.JDvrStreamType;
+import com.droidlogic.jdvrlib.JDvrRecorder.JDvrVideoFormat;
 import com.droidlogic.jdvrlib.JDvrRecorderSettings;
-import com.droidlogic.jdvrlib.JDvrFile;
 import com.droidlogic.jdvrlib.OnJDvrPlayerEventListener;
 import com.droidlogic.jdvrlib.OnJDvrRecorderEventListener;
+
+import java.io.File;
+import java.util.Arrays;
+import java.util.Locale;
+import java.util.concurrent.Executor;
 
 public class TestInstance implements OnTuneEventListener,
         ScanCallback {
@@ -72,12 +63,11 @@ public class TestInstance implements OnTuneEventListener,
                 .setFilterBufferSize(1024*1024)
                 .setSegmentSize(30*1024*1024)
                 .build();
-    JDvrPlayerSettings mJDvrPlayerSettings = new JDvrPlayerSettings();
+    JDvrPlayerSettings mJDvrPlayerSettings = JDvrPlayerSettings.builder().build();
     private boolean mLocked = false;
     private final String mFolder = "/storage/emulated/0/Recordings";
     //private final String mFolder = "/storage/C632-AAA0/Recordings";
     private JDvrPlayer mJDvrPlayer = null;
-    private ASPlayer mASPlayer = null;
     private JDvrPlaybackProgress mProgress = null;
     int mPlayingFileHandle = 0;
     private final static int TIMESHIFT_MAGIC_CODE = 8888;
@@ -173,8 +163,6 @@ public class TestInstance implements OnTuneEventListener,
                     if (mLastEvent == JDvrPlayerEvent.NOTIFY_EOS
                             || mLastEvent == JDvrPlayerEvent.NOTIFY_STOPPING_STATE) {
                         mJDvrPlayer = null;
-                        mASPlayer.release();
-                        mASPlayer = null;
                     }
                     mUiHandler.sendMessage(
                             mUiHandler.obtainMessage(MainActivity.UI_MSG_STATUS,
@@ -460,85 +448,9 @@ public class TestInstance implements OnTuneEventListener,
         }
         mJDvrRecorder.pause();
     }
-    private boolean createNativeJDvrPlayer(final int rec_id, Surface surface) {
-        if (mASPlayer != null) {
-            mASPlayer.release();
-            mASPlayer = null;
-        }
-        if (surface == null) {
-            Log.e(TAG, "Invalid surface");
-            return false;
-        }
-        final String recPrefix = String.format(Locale.US,"%s/%08d",mFolder,rec_id);
-        mPlayingFileHandle = native_prepareFileForPlayback(recPrefix);
-        if (mPlayingFileHandle == -1) {
-            Log.e(TAG, "Invalid playback file handle -1");
-            return false;
-        }
-        final int videoPid = native_getVideoPID(mPlayingFileHandle);
-        final int videoFormat = native_getVideoFormat(mPlayingFileHandle);
-        if (videoPid == 0x1fff || videoFormat == JDvrVideoFormat.VIDEO_FORMAT_UNDEFINED) {
-            Log.e(TAG, "Invalid video PID or video format");
-            return false;
-        }
-        final int audioPid = native_getAudioPID(mPlayingFileHandle);
-        final int audioFormat = native_getAudioFormat(mPlayingFileHandle);
-        if (audioPid == 0x1fff || audioFormat == JDvrAudioFormat.AUDIO_FORMAT_UNDEFINED) {
-            Log.e(TAG, "Invalid audio PID or audio format");
-            return false;
-        }
-        InitParams initParams = new InitParams.Builder()
-                .setPlaybackMode(InitParams.PLAYBACK_MODE_PASSTHROUGH)
-                .setInputSourceType(InputSourceType.TS_MEMORY)
-                .setInputBufferType(InputBufferType.NORMAL)
-                .setEventMask(EventMask.EVENT_TYPE_PTS_MASK)
-                .build();
-        mASPlayer = new ASPlayer(initParams, mTunerForPlayback, null);
-        mASPlayer.prepare();
-
-        Filter videoFilter = openVideoFilter(videoPid,videoFormat);
-        if (videoFilter == null) {
-            Log.e(TAG,"Failed to create video filter");
-            return false;
-        }
-        videoFilter.start();
-        final int width = 1920;
-        final int height = 1080;
-        final int avSyncHwId = mTunerForPlayback.getAvSyncHwId(videoFilter);
-        if (avSyncHwId == -1) {
-            Log.e(TAG,"AvSyncHwId is invalid");
-            return false;
-        }
-        VideoParams videoParams = new VideoParams.Builder(native_getVideoMIMEType(mPlayingFileHandle), width, height)
-                .setPid(videoPid)
-                .setTrackFilterId((int)videoFilter.getIdLong())
-                .setAvSyncHwId(avSyncHwId)
-                .build();
-        mASPlayer.setVideoParams(videoParams);
-
-        Filter audioFilter = openAudioFilter(audioPid,audioFormat);
-        if (audioFilter == null) {
-            Log.e(TAG,"Failed to create audio filter");
-            return false;
-        }
-        audioFilter.start();
-        AudioParams audioParams = new AudioParams.Builder(native_getAudioMIMEType(mPlayingFileHandle), 48000, 2)
-                .setPid(audioPid)
-                .setTrackFilterId((int)audioFilter.getIdLong())
-                .setAvSyncHwId(avSyncHwId)
-                .build();
-        mASPlayer.setAudioParams(audioParams);
-        mASPlayer.setSurface(surface);
-        native_prepareJDvrPlayer(mASPlayer, mPlayingFileHandle);
-        return true;
-    }
     private boolean createPlayer(final int rec_id, Surface surface) {
         if (mJDvrPlayer != null) {
             Log.e(TAG,"JDvrPlayer is not null");
-            return false;
-        }
-        if (mASPlayer != null) {
-            Log.e(TAG,"ASPlayer is not null");
             return false;
         }
         if (surface == null) {
@@ -561,61 +473,7 @@ public class TestInstance implements OnTuneEventListener,
                     "Exception: " + e));
             return false;
         }
-        final int videoPid = file.getVideoPID();
-        final int videoFormat = file.getVideoFormat();
-        if (videoPid == 0x1fff || videoFormat == JDvrVideoFormat.VIDEO_FORMAT_UNDEFINED) {
-            Log.e(TAG, "Invalid video PID or video format");
-            return false;
-        }
-        final int audioPid = file.getAudioPID();
-        final int audioFormat = file.getAudioFormat();
-        if (audioPid == 0x1fff || audioFormat == JDvrAudioFormat.AUDIO_FORMAT_UNDEFINED) {
-            Log.e(TAG, "Invalid audio PID or audio format");
-            return false;
-        }
-        InitParams initParams = new InitParams.Builder()
-                .setPlaybackMode(InitParams.PLAYBACK_MODE_PASSTHROUGH)
-                .setInputSourceType(InputSourceType.TS_MEMORY)
-                .setInputBufferType(InputBufferType.NORMAL)
-                .setEventMask(EventMask.EVENT_TYPE_PTS_MASK)
-                .build();
-        mASPlayer = new ASPlayer(initParams, mTunerForPlayback, null);
-        mASPlayer.prepare();
-
-        Filter videoFilter = openVideoFilter(videoPid,videoFormat);
-        if (videoFilter == null) {
-            Log.e(TAG,"Failed to create video filter");
-            return false;
-        }
-        videoFilter.start();
-        final int width = 1920;
-        final int height = 1080;
-        final int avSyncHwId = mTunerForPlayback.getAvSyncHwId(videoFilter);
-        if (avSyncHwId == -1) {
-            Log.e(TAG,"AvSyncHwId is invalid");
-            return false;
-        }
-        VideoParams videoParams = new VideoParams.Builder(file.getVideoMIMEType(), width, height)
-                .setPid(videoPid)
-                .setTrackFilterId((int)videoFilter.getIdLong())
-                .setAvSyncHwId(avSyncHwId)
-                .build();
-        mASPlayer.setVideoParams(videoParams);
-
-        Filter audioFilter = openAudioFilter(audioPid,audioFormat);
-        if (audioFilter == null) {
-            Log.e(TAG,"Failed to create audio filter");
-            return false;
-        }
-        audioFilter.start();
-        AudioParams audioParams = new AudioParams.Builder(file.getAudioMIMEType(), 48000, 2)
-                .setPid(audioPid)
-                .setTrackFilterId((int)audioFilter.getIdLong())
-                .setAvSyncHwId(avSyncHwId)
-                .build();
-        mASPlayer.setAudioParams(audioParams);
-        mASPlayer.setSurface(surface);
-        mJDvrPlayer = new JDvrPlayer(mASPlayer, file, mJDvrPlayerSettings, mExecutor, mJDvrPlayerEventListener);
+        mJDvrPlayer = new JDvrPlayer(mTunerForPlayback, file, mJDvrPlayerSettings, mExecutor, mJDvrPlayerEventListener, surface);
         return true;
     }
     private void startPlayback() {
@@ -665,7 +523,7 @@ public class TestInstance implements OnTuneEventListener,
         } else {
             recPrefix = String.format(Locale.US,"%s/%08d",mFolder,rec_id);
         }
-        boolean ret = JDvrFile.delete(recPrefix);
+        boolean ret = JDvrFile.delete2(recPrefix);
         if (ret) {
             mUiHandler.sendMessage(mUiHandler.obtainMessage(MainActivity.UI_MSG_STATUS,
                     "Delete "+recPrefix+" successfully"));
@@ -896,7 +754,13 @@ public class TestInstance implements OnTuneEventListener,
                     seekFromCurPos(message.arg1);
                     break;
                 case TaskMsg.TASK_MSG_NATIVE_PREPARE_RECORDER:
-                    native_prepareRecorder();
+                    int index = determineRecordingIndex(mFolder);
+                    if (index == -1) {
+                        mUiHandler.sendMessage(mUiHandler.obtainMessage(MainActivity.UI_MSG_STATUS,
+                                "Failed to generate a recording prefix"));
+                        break;
+                    }
+                    native_prepareRecorder(index);
                     break;
                 case TaskMsg.TASK_MSG_NATIVE_PREPARE_TSH_RECORDER:
                     native_prepareTimeshiftRecorder();
@@ -917,7 +781,7 @@ public class TestInstance implements OnTuneEventListener,
                     native_stopRecording();
                     break;
                 case TaskMsg.TASK_MSG_NATIVE_CREATE_PLAYER:
-                    createNativeJDvrPlayer(message.arg1,(Surface)message.obj);
+                    native_preparePlayer(message.arg1,(Surface)message.obj);
                     break;
                 case TaskMsg.TASK_MSG_NATIVE_PLAY:
                     native_play();
@@ -975,21 +839,14 @@ public class TestInstance implements OnTuneEventListener,
     private native void native_passTuners(Tuner tunerForRecording, Tuner tunerForPlayback);
     private native void native_passRecorderSettings(JDvrRecorderSettings settings);
     private native void native_passPlayerSettings(JDvrPlayerSettings settings);
-    private native void native_prepareRecorder();
-    private native void native_prepareTimeshiftRecorder();
+    private native int native_prepareRecorder(int recId);
+    private native int native_prepareTimeshiftRecorder();
+    private native int native_preparePlayer(int recId, Surface surface);
     private native void native_addStream();
     private native void native_removeStream();
     private native void native_startRecording();
     private native void native_pauseRecording();
     private native void native_stopRecording();
-    private native int native_prepareFileForPlayback(String pathPrefix);
-    private native int native_prepareJDvrPlayer(ASPlayer asplayer, int fileHandle);
-    private native int native_getVideoPID(int fileHandle);
-    private native int native_getVideoFormat(int fileHandle);
-    private native String native_getVideoMIMEType(int fileHandle);
-    private native int native_getAudioPID(int fileHandle);
-    private native int native_getAudioFormat(int fileHandle);
-    private native String native_getAudioMIMEType(int fileHandle);
     private native boolean native_play();
     private native boolean native_pausePlayback();
     private native boolean native_stopPlayback();
