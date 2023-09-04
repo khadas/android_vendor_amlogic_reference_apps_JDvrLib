@@ -91,8 +91,7 @@ private:
 class JDvrPlayer
 {
 public:
-    JDvrPlayer(jobject asplayer, jobject file, jobject settings, on_player_event_callback callback,
-            jobject surface);
+    JDvrPlayer(jobject asplayer, jobject file, jobject settings, on_player_event_callback callback);
     virtual ~JDvrPlayer();
 
     bool play();

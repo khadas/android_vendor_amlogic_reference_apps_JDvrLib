@@ -3,7 +3,6 @@ package com.droidlogic.jdvrlib;
 import android.media.tv.tuner.Tuner;
 import android.media.tv.tuner.dvr.DvrRecorder;
 import android.media.tv.tuner.dvr.OnRecordStatusChangedListener;
-import android.media.tv.tuner.filter.AvSettings;
 import android.media.tv.tuner.filter.Filter;
 import android.media.tv.tuner.filter.FilterCallback;
 import android.media.tv.tuner.filter.FilterConfiguration;
@@ -19,6 +18,7 @@ import android.os.StatFs;
 import android.os.SystemClock;
 import android.util.Log;
 
+import com.droidlogic.jdvrlib.JDvrCommon.*;
 import com.droidlogic.jdvrlib.OnJDvrRecorderEventListener.JDvrRecorderEvent;
 
 import java.util.ArrayList;
@@ -93,7 +93,7 @@ public class JDvrRecorder {
         private final int mSessionNumber;
 
         public JDvrRecordingSession() {
-            mSessionNumber = SharedData.generateSessionNumber();
+            mSessionNumber = JDvrCommon.generateSessionNumber();
         }
         public int getSessionNumber() {
             return mSessionNumber;
@@ -105,41 +105,10 @@ public class JDvrRecorder {
         public final static int CONTROLLER_STATUS_TO_EXIT   = 3;
         public final static int CONTROLLER_STATUS_TO_PAUSE  = 4;
     }
-    public static class JDvrStreamType {
-        public final static int STREAM_TYPE_VIDEO = 0;
-        public final static int STREAM_TYPE_AUDIO = 1;
-        public final static int STREAM_TYPE_AD = 2;
-        public final static int STREAM_TYPE_SUBTITLE = 3;
-        public final static int STREAM_TYPE_TELETEXT = 4;
-        public final static int STREAM_TYPE_ECM = 5;
-        public final static int STREAM_TYPE_EMM = 6;
-        public final static int STREAM_TYPE_OTHER = 7;
-    }
-    public static class JDvrVideoFormat {
-        public final static int VIDEO_FORMAT_UNDEFINED = AvSettings.VIDEO_STREAM_TYPE_UNDEFINED;
-        public final static int VIDEO_FORMAT_MPEG1 = AvSettings.VIDEO_STREAM_TYPE_MPEG1;
-        public final static int VIDEO_FORMAT_MPEG2 = AvSettings.VIDEO_STREAM_TYPE_MPEG2;
-        public final static int VIDEO_FORMAT_H264 = AvSettings.VIDEO_STREAM_TYPE_AVC;
-        public final static int VIDEO_FORMAT_HEVC = AvSettings.VIDEO_STREAM_TYPE_HEVC;
-        public final static int VIDEO_FORMAT_VP9 = AvSettings.VIDEO_STREAM_TYPE_VP9;
-    }
-    public static class JDvrAudioFormat {
-        public final static int AUDIO_FORMAT_UNDEFINED = AvSettings.AUDIO_STREAM_TYPE_UNDEFINED;
-        public final static int AUDIO_FORMAT_MPEG = AvSettings.AUDIO_STREAM_TYPE_MPEG1;
-        public final static int AUDIO_FORMAT_MPEG2 = AvSettings.AUDIO_STREAM_TYPE_MPEG2;
-        public final static int AUDIO_FORMAT_AC3 = AvSettings.AUDIO_STREAM_TYPE_AC3;
-        public final static int AUDIO_FORMAT_EAC3 = AvSettings.AUDIO_STREAM_TYPE_EAC3;
-        public final static int AUDIO_FORMAT_DTS = AvSettings.AUDIO_STREAM_TYPE_DTS;
-        public final static int AUDIO_FORMAT_AAC = AvSettings.AUDIO_STREAM_TYPE_AAC;
-        public final static int AUDIO_FORMAT_HEAAC = AvSettings.AUDIO_STREAM_TYPE_AAC_HE_ADTS;
-        public final static int AUDIO_FORMAT_LATM = AvSettings.AUDIO_STREAM_TYPE_AAC_LATM;
-        public final static int AUDIO_FORMAT_PCM = AvSettings.AUDIO_STREAM_TYPE_PCM;
-        public final static int AUDIO_FORMAT_AC4 = AvSettings.AUDIO_STREAM_TYPE_AC4;
-    }
     public static class JDvrStreamInfo {
         public final int pid;
-        public final int type;
-        public final int format;
+        public final int type;  // JDvrStreamType
+        public final int format;    // JDvrVideoFormat or JDvrAudioFormat
         public int flags;
         public static final int TO_BE_ADDED =       1 << 0;
         public static final int TO_BE_REMOVED =     1 << 1;
@@ -167,6 +136,9 @@ public class JDvrRecorder {
         public String toString2() {
             String flagsStr = String.format(Locale.US,"%5s", Integer.toBinaryString(flags)).replace(' ', '0');
             return "{pid:"+pid+",type:"+type+",format:"+format+",flags:"+flagsStr+"}";
+        }
+        public JDvrAudioTriple toAudioTriple() {
+            return new JDvrAudioTriple(pid,format);
         }
     }
     public static class JDvrRecordingProgress {
@@ -385,7 +357,7 @@ public class JDvrRecorder {
         }
         Log.i(TAG, "RecorderBufferSize given is "+mSettings.mRecorderBufferSize);
         if (mDvrRecorder == null) {
-            Log.d(TAG,"calling Tuner.openDvrRecorder()");
+            Log.d(TAG,"calling Tuner.openDvrRecorder() at "+JDvrCommon.getCallerInfo(3));
             mDvrRecorder = mTuner.openDvrRecorder(
                     mSettings.mRecorderBufferSize,
                     mRecorderExecutor,
@@ -402,7 +374,7 @@ public class JDvrRecorder {
             handlingPidChanges();
         }
         if (mSession.mControllerToStart) {
-            Log.d(TAG,"calling DvrRecorder.start()");
+            Log.d(TAG,"calling DvrRecorder.start() at "+JDvrCommon.getCallerInfo(3));
             int result = mDvrRecorder.start();
             if (result == Tuner.RESULT_SUCCESS) {
                 mSession.mIsStarting = true;
@@ -419,10 +391,15 @@ public class JDvrRecorder {
     private void handlingStartingState() {
         if (mSession.mControllerToStart) {
             mFilters.forEach((pid,filter) -> {
-                Log.d(TAG,"calling Filter.start() for pid:"+pid);
+                Log.d(TAG,"calling Filter.start() for pid "+pid+" at "+JDvrCommon.getCallerInfo(3));
                 int result = filter.start();
                 if (result != Tuner.RESULT_SUCCESS) {
                     Log.e(TAG, "Filter.start() on PID " + pid + " fails. return value: "+result);
+                }
+                JDvrStreamInfo stream = mSession.mStreams.stream().filter(s -> (s.pid == pid))
+                        .findFirst().orElse(null);
+                if (stream != null) {
+                    stream.flags |= JDvrStreamInfo.FILTER_IS_RUNNING;
                 }
             });
             mSession.mControllerToStart = false;
@@ -467,7 +444,7 @@ public class JDvrRecorder {
         if (mSession.mControllerToExit) {
             mFilters.forEach((pid,filter) -> {
                 try {
-                    Log.d(TAG,"calling Filter.stop() for pid:"+pid);
+                    Log.d(TAG,"calling Filter.stop() for pid "+pid+" at "+JDvrCommon.getCallerInfo(3));
                     if (filter.stop() != Tuner.RESULT_SUCCESS) {
                         Log.e(TAG, "Filter.stop() on PID " + pid + " fails.");
                     }
@@ -476,7 +453,7 @@ public class JDvrRecorder {
                     e.printStackTrace();
                 }
             });
-            Log.d(TAG,"calling DvrRecorder.stop()");
+            Log.d(TAG,"calling DvrRecorder.stop() at "+JDvrCommon.getCallerInfo(3));
             int result = mDvrRecorder.stop();
             if (result != Tuner.RESULT_SUCCESS) {
                 Log.e(TAG, "DvrRecorder.stop() fails. return value: " + result);
@@ -491,7 +468,7 @@ public class JDvrRecorder {
             }
             mFilters.clear();
             try {
-                Log.d(TAG,"calling DvrRecorder.close()");
+                Log.d(TAG,"calling DvrRecorder.close() at "+JDvrCommon.getCallerInfo(3));
                 mDvrRecorder.close();
             } catch (IllegalStateException e) {
                 Log.e(TAG, "Exception: " + e);
@@ -619,12 +596,15 @@ public class JDvrRecorder {
                     Log.e(TAG, "The filter to remove is invalid");
                     return;
                 }
+                Log.d(TAG,"calling DvrRecorder.detachFilter() for pid "+stream.pid+" at "+JDvrCommon.getCallerInfo(3));
                 mDvrRecorder.detachFilter(f);
                 try {
+                    Log.d(TAG,"calling Filter.stop() for pid "+stream.pid+" at "+JDvrCommon.getCallerInfo(3));
                     int result = f.stop();
                     if (result != Tuner.RESULT_SUCCESS) {
                         Log.e(TAG, "Filter.stop() fails. return value: "+result);
                     }
+                    Log.d(TAG,"calling Filter.close() for pid "+stream.pid+" at "+JDvrCommon.getCallerInfo(3));
                     f.close();
                 } catch (Exception e) {
                     Log.e(TAG, "Exception: " + e);
@@ -647,6 +627,7 @@ public class JDvrRecorder {
                 if (cond3) {
                     Log.w(TAG,"the filter pid:"+stream.pid+" is supposed to be not running, but actually it is in running state");
                 }
+                Log.d(TAG,"calling Tuner.openFilter() for pid "+stream.pid+" at "+JDvrCommon.getCallerInfo(3));
                 Filter f = mTuner.openFilter(
                         Filter.TYPE_TS,
                         Filter.SUBTYPE_RECORD,
@@ -676,11 +657,18 @@ public class JDvrRecorder {
                         .setTpid(stream.pid)
                         .setSettings(recordSettings)
                         .build();
+                Log.d(TAG,"calling Filter.configure() for pid "+stream.pid+" at "+JDvrCommon.getCallerInfo(3));
                 f.configure(filterConfig);
+                Log.d(TAG,"calling DvrRecorder.attachFilter() for pid "+stream.pid+" at "+JDvrCommon.getCallerInfo(3));
                 mDvrRecorder.attachFilter(f);
                 mFilters.put(stream.pid,f);
-                f.start();
-                stream.flags |= JDvrStreamInfo.FILTER_IS_RUNNING;
+                if (mSession.mState == JDvrRecordingSession.STARTING_STATE ||
+                    mSession.mState == JDvrRecordingSession.STARTED_STATE ||
+                    mSession.mState == JDvrRecordingSession.PAUSED_STATE) {
+                    Log.d(TAG,"calling Filter.start() for pid "+stream.pid+" at "+JDvrCommon.getCallerInfo(3));
+                    f.start();
+                    stream.flags |= JDvrStreamInfo.FILTER_IS_RUNNING;
+                }
                 stream.flags &= ~JDvrStreamInfo.TO_BE_ADDED;
                 if (cond5) {
                     stream.flags |= JDvrStreamInfo.ACQUIRING_PTS;
@@ -790,6 +778,7 @@ public class JDvrRecorder {
      */
     public JDvrRecorder(Tuner tuner, JDvrFile file, JDvrRecorderSettings settings,
                         Executor executor, OnJDvrRecorderEventListener listener) {
+        Log.d(TAG,"JDvrLibAPI JDvrRecorder.ctor "+file.getPathPrefix());
         mTuner = tuner;
         mJDvrFile = file;
         mSettings = (settings == null) ? JDvrRecorderSettings.builder().build() : settings;
@@ -812,11 +801,11 @@ public class JDvrRecorder {
      * @return true if operation is successful, or false if there is any problem.
      */
     public boolean addStream (int pid, int stream_type, int format) {
+        Log.d(TAG, "JDvrLibAPI JDvrRecorder.addStream pid:"+pid+", type:"+stream_type+", format:"+format);
         if (mDvrRecorder == null) {
             Log.e(TAG, "addStream: DvrRecorder is invalid");
             return false;
         }
-        Log.d(TAG, "JDvrRecorder.addStream pid:"+pid+", type:"+stream_type+", format:"+format);
         Message msg = new Message();
         msg.what = JDvrRecordingStatus.STREAM_STATUS_PID_CHANGED;
         msg.obj = new JDvrStreamInfo(pid,stream_type,format,JDvrStreamInfo.TO_BE_ADDED);
@@ -831,11 +820,11 @@ public class JDvrRecorder {
      * @return true if operation is successful, or false if there is any problem.
      */
     public boolean removeStream(int pid) {
+        Log.d(TAG, "JDvrLibAPI JDvrRecorder.removeStream pid:"+pid);
         if (mDvrRecorder == null) {
             Log.e(TAG, "removeStream: DvrRecorder is invalid");
             return false;
         }
-        Log.d(TAG, "JDvrRecorder.removeStream pid:"+pid);
         Message msg = new Message();
         msg.what = JDvrRecordingStatus.STREAM_STATUS_PID_CHANGED;
         msg.obj = new JDvrStreamInfo(pid,0,0,JDvrStreamInfo.TO_BE_REMOVED);
@@ -848,11 +837,11 @@ public class JDvrRecorder {
      * @return true if operation is successful, or false if there is any problem.
      */
     public boolean start () {
+        Log.d(TAG, "JDvrLibAPI JDvrRecorder.start");
         if (mDvrRecorder == null) {
             Log.e(TAG, "start: DvrRecorder is invalid");
             return false;
         }
-        Log.d(TAG, "JDvrRecorder.start");
         mRecordingHandler.sendMessage(
                 mRecordingHandler.obtainMessage(JDvrRecordingStatus.CONTROLLER_STATUS_TO_START,null));
         return true;
@@ -863,11 +852,11 @@ public class JDvrRecorder {
      * @return true if operation is successful, or false if there is any problem.
      */
     public boolean stop () {
+        Log.d(TAG, "JDvrLibAPI DvrRecorder.stop");
         if (mDvrRecorder == null) {
             Log.e(TAG, "stop: DvrRecorder is invalid");
             return false;
         }
-        Log.d(TAG, "JDvrRecorder.stop");
         mRecordingHandler.sendMessage(
                 mRecordingHandler.obtainMessage(JDvrRecordingStatus.CONTROLLER_STATUS_TO_EXIT,null));
         return true;
@@ -878,11 +867,11 @@ public class JDvrRecorder {
      * @return true if operation is successful, or false if there is any problem.
      */
     public boolean pause () {
+        Log.d(TAG, "JDvrLibAPI JDvrRecorder.pause");
         if (mDvrRecorder == null) {
             Log.e(TAG, "pause: DvrRecorder is invalid");
             return false;
         }
-        Log.d(TAG, "JDvrRecorder.pause");
         mRecordingHandler.sendMessage(
                 mRecordingHandler.obtainMessage(JDvrRecordingStatus.CONTROLLER_STATUS_TO_PAUSE,null));
         return true;
@@ -921,4 +910,5 @@ public class JDvrRecorder {
         msg.obj = progress;
         onJDvrRecorderEvent(msg);
     }
+
 }

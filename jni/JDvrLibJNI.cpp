@@ -369,6 +369,7 @@ AmDvr_File_getVideoPID(
     }
     JDvrFile* p = (JDvrFile*)*it;
     *ppid  = p->getVideoPID();
+    ALOGD("%s, got video PID %d",__func__,*ppid);
     return JDVRLIB_JNI_OK;
 }
 
@@ -423,6 +424,7 @@ AmDvr_File_getAudioPID(
     }
     JDvrFile* p = (JDvrFile*)*it;
     *ppid  = p->getAudioPID();
+    ALOGD("%s, got audio PID %d",__func__,*ppid);
     return JDVRLIB_JNI_OK;
 }
 
@@ -613,8 +615,7 @@ AmDvr_Player_create (
         return JDVRLIB_JNI_ERR;
     }
     JDvrFile* p = (JDvrFile*)*it;
-    auto handle = new JDvrPlayer(params->tuner,p->getJObject(),params->settings,params->callback,
-            params->surface);
+    auto handle = new JDvrPlayer(params->asplayer,p->getJObject(),params->settings,params->callback);
     if (handle == nullptr) {
         *phandle = nullptr;
         return JDVRLIB_JNI_ERR;

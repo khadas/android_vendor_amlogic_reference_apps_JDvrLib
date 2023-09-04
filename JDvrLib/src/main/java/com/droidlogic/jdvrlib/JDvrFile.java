@@ -21,6 +21,7 @@ import java.util.Comparator;
 import java.util.Locale;
 import java.util.stream.Collectors;
 
+import com.droidlogic.jdvrlib.JDvrCommon.*;
 import com.droidlogic.jdvrlib.JDvrRecorder.JDvrStreamInfo;
 
 public class JDvrFile {
@@ -523,7 +524,7 @@ public class JDvrFile {
     public int getVideoFormat() {
         if (mType < 2) { throw new RuntimeException("Cannot do this under Recording situation"); }
         JDvrSegment seg = mSegments.stream().filter(s -> (s.id() == mSegmentIdBeingRead)).findFirst().orElse(null);
-        return (seg != null) ? seg.getVideoFormat() : JDvrRecorder.JDvrVideoFormat.VIDEO_FORMAT_UNDEFINED;
+        return (seg != null) ? seg.getVideoFormat() : JDvrVideoFormat.VIDEO_FORMAT_UNDEFINED;
     }
     /**
      * Get primary audio PID of the recording.
@@ -553,7 +554,12 @@ public class JDvrFile {
     public int getAudioFormat() {
         if (mType < 2) { throw new RuntimeException("Cannot do this under Recording situation"); }
         JDvrSegment seg = mSegments.stream().filter(s -> (s.id() == mSegmentIdBeingRead)).findFirst().orElse(null);
-        return (seg != null) ? seg.getAudioFormat() : JDvrRecorder.JDvrAudioFormat.AUDIO_FORMAT_UNDEFINED;
+        return (seg != null) ? seg.getAudioFormat() : JDvrAudioFormat.AUDIO_FORMAT_UNDEFINED;
+    }
+    public ArrayList<JDvrAudioTriple> getAudioTriples() {
+        if (mType < 2) { throw new RuntimeException("Cannot do this under Recording situation"); }
+        JDvrSegment seg = mSegments.stream().filter(s -> (s.id() == mSegmentIdBeingRead)).findFirst().orElse(null);
+        return (seg != null) ? seg.getAudioTriples() : null;
     }
 
     // Private APIs

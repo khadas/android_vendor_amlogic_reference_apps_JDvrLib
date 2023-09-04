@@ -37,8 +37,8 @@ java_library {
     //proprietary: true,
     //dxflags: ["--core-library"],
 
-    static_libs: [
-        "droidlogic.jasplayer",
+    libs: [
+        "droidlogic.jniasplayer",
     ],
 
     required: [
@@ -60,12 +60,14 @@ android_app {
     },
     vendor: true,
     sdk_version: "system_current",
+    enforce_uses_libs: false,
     dex_preopt: {
         enabled: false,
     },
     static_libs: [
         "androidx-constraintlayout_constraintlayout",
         "JDvrLib",
+        "droidlogic.jniasplayer",
     ],
 }
 

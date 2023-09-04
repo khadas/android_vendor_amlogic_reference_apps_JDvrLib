@@ -241,12 +241,11 @@ bool Loader::initJDvrLibJNI(JNIEnv *jniEnv) {
     env->DeleteLocalRef(jdvrplayerCls);
     gJDvrPlayerCtx.constructorMID = GetMethodIDOrDie(env, gJDvrPlayerCls, "<init>",
             "("
-            "Landroid/media/tv/tuner/Tuner;"
+            "Lcom/amlogic/asplayer/api/ASPlayer;"
             "Lcom/droidlogic/jdvrlib/JDvrFile;"
             "Lcom/droidlogic/jdvrlib/JDvrPlayerSettings;"
             "Ljava/util/concurrent/Executor;"
             "Lcom/droidlogic/jdvrlib/OnJDvrPlayerEventListener;"
-            "Landroid/view/Surface;"
             ")V");
     gJDvrPlayerCtx.playMID = GetMethodIDOrDie(env, gJDvrPlayerCls, "play", "()Z");
     gJDvrPlayerCtx.pauseMID = GetMethodIDOrDie(env, gJDvrPlayerCls, "pause", "()Z");
@@ -694,7 +693,7 @@ static jint native_notifyJDvrPlayerEvent(JNIEnv *env, jobject jListener,
     return 0;
 }
 
-JDvrPlayer::JDvrPlayer(jobject tuner, jobject file, jobject settings, on_player_event_callback callback, jobject surface)
+JDvrPlayer::JDvrPlayer(jobject asplayer, jobject file, jobject settings, on_player_event_callback callback)
 {
     mEnv = Loader::getOrAttachJNIEnvironment();
     if (mEnv == nullptr) {
@@ -706,10 +705,10 @@ JDvrPlayer::JDvrPlayer(jobject tuner, jobject file, jobject settings, on_player_
         return;
     }
     mCallback = callback;
-    ALOGD("%s, tuner:%p, file:%p, settings:%p, callback:%p, surface:%p",
-            __PRETTY_FUNCTION__,tuner,file,settings,callback,surface);
+    ALOGD("%s, asplayer:%p, file:%p, settings:%p, callback:%p",
+            __PRETTY_FUNCTION__,asplayer,file,settings,callback);
     jobject player = mEnv->NewObject(gJDvrPlayerCls, gJDvrPlayerCtx.constructorMID,
-            tuner, file, settings, NULL, NULL, surface);
+            asplayer, file, settings, NULL, NULL);
     if (player != NULL) {
         mJavaJDvrPlayer = MakeGlobalRefOrDie(mEnv, player);
         mEnv->DeleteLocalRef(player);

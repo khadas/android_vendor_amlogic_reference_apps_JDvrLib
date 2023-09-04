@@ -23,6 +23,10 @@
         android:requestLegacyExternalStorage="true"
         android:theme="@style/Theme.JDvrLibTest"
         tools:targetApi="31">
+
+        <uses-library android:name="jdvrlib" android:required="false" />
+        <uses-library android:name="droidlogic.jniasplayer" android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true">

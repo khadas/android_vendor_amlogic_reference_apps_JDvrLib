@@ -23,7 +23,7 @@
         android:background="@android:drawable/screen_background_dark_transparent"
         android:elevation="1dp"
         android:textSize="8sp"
-        app:layout_constraintStart_toEndOf="@id/button11"
+        app:layout_constraintStart_toEndOf="@id/button35"
         app:layout_constraintTop_toTopOf="@+id/button1" />
 
     <TextView
@@ -263,7 +263,7 @@
 
     <Button
         android:id="@+id/button13"
-        android:layout_width="64dp"
+        android:layout_width="48dp"
         android:layout_height="36dp"
         android:layout_marginStart="32dp"
         android:layout_marginTop="4dp"
@@ -276,7 +276,7 @@
 
     <Button
         android:id="@+id/button14"
-        android:layout_width="64dp"
+        android:layout_width="48dp"
         android:layout_height="36dp"
         android:layout_marginStart="4dp"
         android:onClick="Button14Click"
@@ -541,6 +541,18 @@
         android:textSize="11sp"
         app:layout_constraintStart_toEndOf="@+id/textView1"
         app:layout_constraintTop_toBottomOf="@+id/button31" />
+
+    <Button
+        android:id="@+id/button35"
+        android:layout_width="80dp"
+        android:layout_height="36dp"
+        android:layout_marginStart="4dp"
+        android:onClick="Button35Click"
+        android:text="@string/button35_name"
+        android:textAllCaps="false"
+        android:textSize="11sp"
+        app:layout_constraintStart_toEndOf="@+id/button14"
+        app:layout_constraintTop_toTopOf="@+id/button13" />
 
     <EditText
         android:id="@+id/editRecordingNumber"

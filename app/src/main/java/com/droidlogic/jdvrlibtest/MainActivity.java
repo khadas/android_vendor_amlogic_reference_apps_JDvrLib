@@ -333,6 +333,10 @@ public class MainActivity extends AppCompatActivity {
         mInstance.getTaskHandler().sendMessage(msg);
         addToLogView("Clicked JNI Delete");
     }
+    public void Button35Click(View v) {
+        mInstance.getTaskHandler().sendEmptyMessage(TaskMsg.TASK_MSG_CHANGE_AUDIO_TRACK);
+        addToLogView("Clicked CHANGE_AUDIO_TRACK");
+    }
     public Handler getUiHandler() {
         return mUiHandler;
     }

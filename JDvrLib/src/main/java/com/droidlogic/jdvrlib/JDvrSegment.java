@@ -5,10 +5,8 @@ import android.os.SystemClock;
 import android.util.JsonReader;
 import android.util.Log;
 
-import com.droidlogic.jdvrlib.JDvrRecorder.JDvrAudioFormat;
+import com.droidlogic.jdvrlib.JDvrCommon.*;
 import com.droidlogic.jdvrlib.JDvrRecorder.JDvrStreamInfo;
-import com.droidlogic.jdvrlib.JDvrRecorder.JDvrStreamType;
-import com.droidlogic.jdvrlib.JDvrRecorder.JDvrVideoFormat;
 
 import java.io.File;
 import java.io.IOException;
@@ -23,6 +21,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 class JDvrSegment {
@@ -177,14 +176,8 @@ class JDvrSegment {
                 .findFirst().orElse(null);
         if (info == null) {
             return null;
-        } else if (info.format == JDvrAudioFormat.AUDIO_FORMAT_MPEG) {
-            return MediaFormat.MIMETYPE_AUDIO_MPEG;
-        } else if (info.format == JDvrAudioFormat.AUDIO_FORMAT_AAC) {
-            return MediaFormat.MIMETYPE_AUDIO_AAC;
-        } else if (info.format == JDvrAudioFormat.AUDIO_FORMAT_EAC3) {
-            return MediaFormat.MIMETYPE_AUDIO_EAC3;
         }
-        return null;
+        return JDvrCommon.JDvrAudioFormatToMimeType(info.format);
     }
     public int getAudioFormat() {
         if (mLoadLevel < 2) {
@@ -208,6 +201,17 @@ class JDvrSegment {
             return JDvrAudioFormat.AUDIO_FORMAT_EAC3;
         }
         return JDvrAudioFormat.AUDIO_FORMAT_UNDEFINED;
+    }
+    public ArrayList<JDvrAudioTriple> getAudioTriples() {
+        if (mLoadLevel < 2) {
+            load(2);
+        }
+        if (mTimeStreamIndexArray.size() == 0) {
+            return null;
+        }
+        return mTimeStreamIndexArray.get(0).pids.stream()
+                .filter(i -> (i.type == JDvrStreamType.STREAM_TYPE_AUDIO))
+                .map(JDvrStreamInfo::toAudioTriple).collect(Collectors.toCollection(ArrayList::new));
     }
     private int load(int level) {
         //final long ts1 = SystemClock.elapsedRealtime();
@@ -587,6 +591,7 @@ class JDvrSegment {
     }
     Long findPtsFrom(long pts, long timeOffsetFrom) {
         if (mMode == 0) { throw new RuntimeException("Cannot do this under Recording situation"); }
+        load(3);
         final int len = mTimeOffsetIndexArray.size();
         final Integer i = findMatchingIndexByTimeOffset(timeOffsetFrom);
         if (i == null) {
