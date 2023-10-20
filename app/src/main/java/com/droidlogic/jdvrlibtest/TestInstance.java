@@ -42,7 +42,6 @@ import com.droidlogic.jdvrlib.OnJDvrPlayerEventListener;
 import com.droidlogic.jdvrlib.OnJDvrRecorderEventListener;
 
 import java.io.File;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.concurrent.Executor;
@@ -668,12 +667,6 @@ public class TestInstance implements OnTuneEventListener,
                     "Fail to delete "+recPrefix));
         }
     }
-    private void changeAudioTrack() {
-        if (mJDvrPlayer == null) {
-            Log.e(TAG, "changeAudioTrack, JDvrPlayer is invalid");
-            return;
-        }
-    }
     private int determineRecordingIndex(String folder) {
         File data;
         for (int i=0; i<1000; i++) {
@@ -971,9 +964,6 @@ public class TestInstance implements OnTuneEventListener,
                                 "Fail to delete recording "+pathPrefix));
                     }
                     break;
-                case TaskMsg.TASK_MSG_CHANGE_AUDIO_TRACK:
-                    changeAudioTrack();
-                    break;
                 default:
                     result = false;
                     break;
@@ -1040,6 +1030,5 @@ public class TestInstance implements OnTuneEventListener,
         public final static int TASK_MSG_NATIVE_GET_PROGRESS = 33;
         public final static int TASK_MSG_DELETE = 34;
         public final static int TASK_MSG_JNI_DELETE = 35;
-        public final static int TASK_MSG_CHANGE_AUDIO_TRACK = 36;
     }
 }

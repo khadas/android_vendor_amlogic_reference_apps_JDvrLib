@@ -21,7 +21,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 class JDvrSegment {
@@ -201,17 +200,6 @@ class JDvrSegment {
             return JDvrAudioFormat.AUDIO_FORMAT_EAC3;
         }
         return JDvrAudioFormat.AUDIO_FORMAT_UNDEFINED;
-    }
-    public ArrayList<JDvrAudioTriple> getAudioTriples() {
-        if (mLoadLevel < 2) {
-            load(2);
-        }
-        if (mTimeStreamIndexArray.size() == 0) {
-            return null;
-        }
-        return mTimeStreamIndexArray.get(0).pids.stream()
-                .filter(i -> (i.type == JDvrStreamType.STREAM_TYPE_AUDIO))
-                .map(JDvrStreamInfo::toAudioTriple).collect(Collectors.toCollection(ArrayList::new));
     }
     private int load(int level) {
         //final long ts1 = SystemClock.elapsedRealtime();

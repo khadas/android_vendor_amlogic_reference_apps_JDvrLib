@@ -39,21 +39,6 @@ public class JDvrCommon {
         public final static int AUDIO_FORMAT_PCM = AvSettings.AUDIO_STREAM_TYPE_PCM;
         public final static int AUDIO_FORMAT_AC4 = AvSettings.AUDIO_STREAM_TYPE_AC4;
     }
-    public static class JDvrAudioTriple {
-        public int pid;
-        public int format;
-        public String mimeType;
-        public JDvrAudioTriple(int pid, int format, String mimeType) {
-            this.pid = pid;
-            this.format = format;
-            this.mimeType = mimeType;
-        }
-        public JDvrAudioTriple(int pid, int format) {
-            this.pid = pid;
-            this.format = format;
-            this.mimeType = JDvrAudioFormatToMimeType(format);
-        }
-    }
 
     // Functions
     public static int generateSessionNumber() {

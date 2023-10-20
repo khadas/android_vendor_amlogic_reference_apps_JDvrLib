@@ -2,7 +2,6 @@ package com.droidlogic.jdvrlib;
 
 import static com.amlogic.asplayer.api.ASPlayer.INFO_BUSY;
 
-import android.media.tv.tuner.filter.Filter;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Message;
@@ -11,11 +10,9 @@ import android.util.Log;
 import android.util.Pair;
 
 import com.amlogic.asplayer.api.ASPlayer;
-import com.amlogic.asplayer.api.AudioParams;
 import com.amlogic.asplayer.api.InputBuffer;
 import com.amlogic.asplayer.api.TsPlaybackListener;
 import com.amlogic.asplayer.api.VideoTrickMode;
-import com.droidlogic.jdvrlib.JDvrCommon.*;
 import com.droidlogic.jdvrlib.OnJDvrPlayerEventListener.JDvrPlayerEvent;
 
 import java.io.File;
@@ -52,6 +49,7 @@ public class JDvrPlayer {
         private long mTimestampOfLastProgressNotify = 0;
         private boolean mRecordingIsUpdatedLately = true;
         private boolean mTrickModeBySeekIsOn = false;
+        private boolean mHasPausedDecoding = false;
 
         public JDvrPlaybackSession() {
             mSessionNumber = JDvrCommon.generateSessionNumber();
@@ -96,16 +94,6 @@ public class JDvrPlayer {
                     '}';
         }
     }
-    public static class JDvrAudioTrack extends JDvrAudioTriple {
-        Filter filter = null;
-        AudioParams params = null;
-        public JDvrAudioTrack(int pid, int format) {
-            super(pid,format);
-        }
-        public JDvrAudioTriple toAudioTriple() {
-            return new JDvrAudioTriple(pid,format);
-        }
-    }
 
     private final static int READ_LEN = 188*1024;  // in bytes
     private final static int interval1 = 1000;   // in ms
@@ -126,9 +114,6 @@ public class JDvrPlayer {
     private long mLastPts = 0L;     // Original PTS in 90KHz
     private long mEndTime = 0L;
     private long mPlayingTime = 0L;
-    private int mAvHwSyncId = -1;
-    private ArrayList<JDvrAudioTrack> mAudioTracks = new ArrayList<>();
-    private int mActiveAudioTrackIndex = -1;
 
     // Callbacks
     private final Handler.Callback mPlaybackCallback = message -> {
@@ -501,6 +486,7 @@ public class JDvrPlayer {
                 Log.e(TAG, "ASPlayer.startVideoDecoding fails");
                 return;
             }
+            mSession.mHasPausedDecoding = false;
             if (mASPlayer.startAudioDecoding() < 0) {
                 Log.e(TAG, "ASPlayer.startAudioDecoding fails");
                 return;
@@ -517,7 +503,11 @@ public class JDvrPlayer {
         } else if (mSession.mControllerToExit || mSession.mIsEOS) {
             mJDvrFile.close();
             mJDvrFile = null;
-            mASPlayer.removePlaybackListener(mTsPlaybackListener);
+            try {
+                mASPlayer.removePlaybackListener(mTsPlaybackListener);
+            } catch (NullPointerException e) {
+                Log.w(TAG, "Exception: " + e);
+            }
             mPlaybackThread.quit();
             mSession.mControllerToExit = false;
             mSession.mIsEOS = false;
@@ -576,6 +566,7 @@ public class JDvrPlayer {
                 Log.d(TAG,"calling ASPlayer.pauseVideoDecoding at "+JDvrCommon.getCallerInfo(3));
                 final int ret = mASPlayer.pauseVideoDecoding();
                 mASPlayer.pauseAudioDecoding();
+                mSession.mHasPausedDecoding = true;
                 if (ret == 0) {
                     speedTransition();
                 } else {
@@ -630,6 +621,7 @@ public class JDvrPlayer {
             Log.d(TAG,"calling ASPlayer.pauseVideoDecoding at "+JDvrCommon.getCallerInfo(3));
             mASPlayer.pauseVideoDecoding();
             mASPlayer.pauseAudioDecoding();
+            mSession.mHasPausedDecoding = true;
             speedTransition();
         }
         if (cond4) {
@@ -690,7 +682,6 @@ public class JDvrPlayer {
     private void handlingPausedState() {
         final long curTs = SystemClock.elapsedRealtime();
         mSession.mControllerToPause = false;
-        injectData();
         final boolean cond1 = (mEndTime != 0 && mEndTime-mPlayingTime<300);
         final boolean cond2 = isSmoothPlaySpeed(mSession.mCurrentSpeed);
         final boolean cond3 = isSkippingPlaySpeed(mSession.mCurrentSpeed);
@@ -698,6 +689,11 @@ public class JDvrPlayer {
         final boolean cond5 = (mSession.mTargetSeekPos != null);
         final boolean cond6 = mSession.mFirstVideoFrameReceived;
         final boolean cond7 = !mSession.mRecordingIsUpdatedLately;
+        final boolean cond8 = !mSession.mHasPausedDecoding;
+        if (!cond6) {
+            final int len = injectData();
+            Log.d(TAG,"injected "+len+" bytes in PAUSED state");
+        }
         if (cond1 && cond7) {
             mSession.mIsEOS = true;
             mSession.mIsStopping = true;
@@ -710,13 +706,16 @@ public class JDvrPlayer {
             Log.d(TAG,"calling ASPlayer.pauseVideoDecoding at "+JDvrCommon.getCallerInfo(3));
             final int ret = mASPlayer.pauseVideoDecoding();
             mASPlayer.pauseAudioDecoding();
+            mSession.mHasPausedDecoding = true;
             if (ret == 0) {
                 speedTransition();
+                mSession.mFirstVideoFrameReceived = false;
             } else {
                 Log.e(TAG,"ASPlayer.pauseVideoDecoding returns "+ret);
             }
         } else if (cond3) {
             speedTransition();
+            mSession.mFirstVideoFrameReceived = false;
         } else if (cond5) {
             Log.d(TAG,"calling ASPlayer.flushDvr/flush at "+JDvrCommon.getCallerInfo(3));
             mASPlayer.flushDvr();
@@ -728,11 +727,11 @@ public class JDvrPlayer {
             if (mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
                 mPlaybackHandler.removeCallbacks(mPtsRunnable);
             }
-        } else if (cond6) {
+        } else if (cond6 && cond8) {
             Log.d(TAG,"calling ASPlayer.pauseVideoDecoding at "+JDvrCommon.getCallerInfo(3));
             mASPlayer.pauseVideoDecoding();
             mASPlayer.pauseAudioDecoding();
-            mSession.mFirstVideoFrameReceived = false;
+            mSession.mHasPausedDecoding = true;
         }
         if (mSession.mTimestampOfLastProgressNotify == 0
                 || curTs >= mSession.mTimestampOfLastProgressNotify + interval1) {
@@ -743,11 +742,15 @@ public class JDvrPlayer {
     }
     private void handlingStoppingState() {
         if (mSession.mIsStopping) {
-            Log.d(TAG,"calling ASPlayer.stopVideoDecoding at "+JDvrCommon.getCallerInfo(3));
-            mASPlayer.stopVideoDecoding();
-            mASPlayer.stopAudioDecoding();
-            Log.d(TAG,"calling ASPlayer.flushDvr at "+JDvrCommon.getCallerInfo(3));
-            mASPlayer.flushDvr();
+            try {
+                Log.d(TAG, "calling ASPlayer.stopVideoDecoding at " + JDvrCommon.getCallerInfo(3));
+                mASPlayer.stopVideoDecoding();
+                mASPlayer.stopAudioDecoding();
+                Log.d(TAG, "calling ASPlayer.flushDvr at " + JDvrCommon.getCallerInfo(3));
+                mASPlayer.flushDvr();
+            } catch (NullPointerException e) {
+                Log.w(TAG, "Exception: " + e);
+            }
             mSession.mHaveStopped = true;
             if (mSession.mIsEOS) {
                 Message msg = new Message();
@@ -788,6 +791,7 @@ public class JDvrPlayer {
             }
             len2 = 0;
         }
+        //Log.d(TAG,"injected "+len2+" bytes");
         return len2;
     }
     private boolean isSmoothPlaySpeed(double speed) {

@@ -116,6 +116,18 @@ am_dvr_result
 AmDvr_File_duration(
         am_dvr_file_handle handle,
         int64_t* pduration);
+
+/**
+ * @brief   Get recording duration in ms
+ *          The reason to introduce this function in addition to AmDvr_File_duration
+ *          is that it does not require to create a JDvrFile in advance.
+ *          This API is designed for PVR management module which only queries
+ *          basic recording information like recording length.
+ * @param   path_prefix: A path like string and the common part of a group of
+ *          associated files that represents a recording.
+ * @param[out]  psize: A pointer to the returned size value in bytes.
+ * @retval  JDVRLIB_JNI_OK if function succeeds, or JDVRLIB_JNI_ERR if any error.
+ */
 am_dvr_result
 AmDvr_File_duration2(
         const uint8_t* path_prefix,
@@ -131,6 +143,18 @@ am_dvr_result
 AmDvr_File_size(
         am_dvr_file_handle handle,
         int64_t* psize);
+
+/**
+ * @brief   Get recording size in bytes.
+ *          The reason to introduce this function in addition to AmDvr_File_size
+ *          is that it does not require to create a JDvrFile in advance.
+ *          This API is designed for PVR management module which only queries
+ *          basic recording information like recording size.
+ * @param   path_prefix: A path like string and the common part of a group of
+ *          associated files that represents a recording.
+ * @param[out]  psize: A pointer to the returned size value in bytes.
+ * @retval  JDVRLIB_JNI_OK if function succeeds, or JDVRLIB_JNI_ERR if any error.
+ */
 am_dvr_result
 AmDvr_File_size2(
         const uint8_t* path_prefix,
@@ -333,8 +357,8 @@ AmDvr_Recorder_start (
 
 /**
  * @brief   Pause recording.
- *      The data will dropped after pause recording.
- *      Invoke AmDvr_Recorder_start will resume the recording.
+ *          Coming data will be dropped after pause recording.
+ *          Invoking AmDvr_Recorder_start will resume recording.
  * @param   handle: The recorder handle.
  * @retval  JDVRLIB_JNI_OK if function succeeds, or JDVRLIB_JNI_ERR if any error.
  */

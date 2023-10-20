@@ -137,9 +137,6 @@ public class JDvrRecorder {
             String flagsStr = String.format(Locale.US,"%5s", Integer.toBinaryString(flags)).replace(' ', '0');
             return "{pid:"+pid+",type:"+type+",format:"+format+",flags:"+flagsStr+"}";
         }
-        public JDvrAudioTriple toAudioTriple() {
-            return new JDvrAudioTriple(pid,format);
-        }
     }
     public static class JDvrRecordingProgress {
         public int sessionNumber;

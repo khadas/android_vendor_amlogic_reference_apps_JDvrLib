@@ -172,7 +172,7 @@ public class JDvrFile {
                     mSegments.add(segment);
                     mLastLoadedSegmentId = segment.id();
                 }
-            } catch (IOException e) {
+            } catch (IOException | NumberFormatException e) {
                 Log.e(TAG, "Exception: " + e);
                 e.printStackTrace();
                 return false;
@@ -556,11 +556,6 @@ public class JDvrFile {
         JDvrSegment seg = mSegments.stream().filter(s -> (s.id() == mSegmentIdBeingRead)).findFirst().orElse(null);
         return (seg != null) ? seg.getAudioFormat() : JDvrAudioFormat.AUDIO_FORMAT_UNDEFINED;
     }
-    public ArrayList<JDvrAudioTriple> getAudioTriples() {
-        if (mType < 2) { throw new RuntimeException("Cannot do this under Recording situation"); }
-        JDvrSegment seg = mSegments.stream().filter(s -> (s.id() == mSegmentIdBeingRead)).findFirst().orElse(null);
-        return (seg != null) ? seg.getAudioTriples() : null;
-    }
 
     // Private APIs
     public int write (byte[] buffer, int offset, int size, long pts) {
@@ -868,7 +863,7 @@ public class JDvrFile {
             if (mLock == null) {
                 throw new RuntimeException("Cannot acquire lock for recording");
             }
-            if (!load()) {
+            if (!(load() || load() || load())) {
                 Log.d(TAG,"unlock(0-100) for recording");
                 mLock.release();
                 throw new RuntimeException("Fails to load recording files");
