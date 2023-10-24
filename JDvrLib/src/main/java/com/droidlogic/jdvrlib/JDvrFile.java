@@ -710,12 +710,17 @@ public class JDvrFile {
         if (mType < 2) { throw new RuntimeException("Cannot do this under Recording situation"); }
         return mSegmentIdBeingRead;
     }
+    /**
+     * Get current playing time in ms from origin
+     *
+     * @return  playing time if operation is successful, or -1 if there is any problem.
+     */
     public long getPlayingTime() {
         if (mType < 2) { throw new RuntimeException("Cannot do this under Recording situation"); }
         int segmentId = timeOffsetToSegmentId(mPlayingTime);
         if (segmentId == -1) {
             Log.e(TAG,"Cannot get segment id for time "+mPlayingTime);
-            return 0L;
+            return -1L;
         }
         final long segmentTimeOffset = mPlayingTime - mSegments.get(segmentId).getStartTime();
         // Search pts in current index file.
@@ -731,7 +736,7 @@ public class JDvrFile {
             Log.w(TAG,"Cannot find out matching index for pts "+mLastPts+" in segment:"
                     +(segmentId-1)+" starting from offset:"+segmentTimeOffset+"ms and segment:"+segmentId);
         }
-        return (newSegmentPlayingTime != null) ? mPlayingTime : 0L;
+        return (newSegmentPlayingTime != null) ? mPlayingTime : -1L;
     }
 
     /**
@@ -873,13 +878,10 @@ public class JDvrFile {
         }
     }
     private int timeOffsetToSegmentId(long timeOffset) {
-        long sum = 0;
-        for (int i=0; i<mSegments.size(); i++) {
-            sum += mSegments.get(i).duration();
-            if (sum >= timeOffset) {
-                return i;
-            }
+        if (timeOffset < 0) {
+            return -1;
         }
-        return -1;
+        JDvrSegment seg = mSegments.stream().filter(s -> (s.getStartTime() + s.duration()) >= timeOffset).findFirst().orElse(null);
+        return (seg != null) ? seg.id() : -1;
     }
 }

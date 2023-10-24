@@ -73,9 +73,9 @@ typedef struct {
     int         sessionNumber;
     int         state;
     double      speed;
-    long long   currTime;       // in ms
-    long long   startTime;      // in ms
-    long long   endTime;        // in ms
+    long long   currTime;       // in ms, from origin
+    long long   startTime;      // in ms, from origin
+    long long   endTime;        // in ms, from origin
     long long   duration;       // in ms
     int         currSegmentId;
     int         firstSegmentId;

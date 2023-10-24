@@ -43,13 +43,16 @@ public class JDvrPlayer {
         private boolean mIsEOS = false;
         private double mCurrentSpeed = 0.0d;
         private double mTargetSpeed = 1.0d;
-        private Integer mTargetSeekPos = null;      // in seconds
+        private Integer mTargetSeekPos = 0;      // in seconds
         private boolean mFirstVideoFrameReceived = false;
         private boolean mFirstAudioFrameReceived = false;
         private long mTimestampOfLastProgressNotify = 0;
         private boolean mRecordingIsUpdatedLately = true;
         private boolean mTrickModeBySeekIsOn = false;
         private boolean mHasPausedDecoding = false;
+        private boolean mVideoDecoderInitReceived = false;
+        private boolean mStartingPhaseSeek1Done = false;
+        private boolean mStartingPhaseSeek2Done = false;
 
         public JDvrPlaybackSession() {
             mSessionNumber = JDvrCommon.generateSessionNumber();
@@ -69,9 +72,9 @@ public class JDvrPlayer {
         public int sessionNumber;
         public int state;
         public double speed;
-        public long currTime;    // in ms
-        public long startTime;   // in ms
-        public long endTime;     // in ms
+        public long currTime;    // in ms, from origin
+        public long startTime;   // in ms, from origin
+        public long endTime;     // in ms, from origin
         public long duration;    // in ms
         public int currSegmentId;
         public int firstSegmentId;
@@ -247,6 +250,8 @@ public class JDvrPlayer {
                 mPlaybackHandler.postAtFrontOfQueue(() -> mSession.mFirstVideoFrameReceived = true);
             } else if (playbackEvent instanceof TsPlaybackListener.AudioFirstFrameEvent) {
                 mPlaybackHandler.postAtFrontOfQueue(() -> mSession.mFirstAudioFrameReceived = true);
+            } else if (playbackEvent instanceof TsPlaybackListener.VideoDecoderInitCompletedEvent) {
+                mPlaybackHandler.postAtFrontOfQueue(() -> mSession.mVideoDecoderInitReceived = true);
             } else if (playbackEvent instanceof TsPlaybackListener.PtsEvent) {
                 if (count++%8 == 0) { // Ignore 7/8 PTS events
                     mLastPts = ((PtsEvent) playbackEvent).mPts * 90 / 1000;     // Original PTS in 90KHz
@@ -254,6 +259,7 @@ public class JDvrPlayer {
                         if (mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
                             mPlaybackHandler.removeCallbacks(mPtsRunnable);
                         }
+                        //Log.d(TAG,"pts:"+mLastPts);
                         mPlaybackHandler.post(mPtsRunnable);
                     }
                 }
@@ -514,9 +520,37 @@ public class JDvrPlayer {
         }
     }
     private void handlingStartingState() {
-        final boolean cond1 = (-1 == injectData());
-        final boolean cond2 = !mSession.mRecordingIsUpdatedLately;
-        if (cond1 && cond2) {
+        final boolean cond1 = !mSession.mStartingPhaseSeek1Done;
+        final boolean cond2 = !mSession.mStartingPhaseSeek2Done;
+        final boolean cond3 = mSession.mVideoDecoderInitReceived;
+        final boolean cond4 = !mSession.mRecordingIsUpdatedLately;
+        final boolean cond5 = (mJDvrFile.getVideoPID() == 0x1fff);
+        final boolean cond6 = (mSession.mTargetSeekPos != null);
+        if (cond6 && (cond1 || (cond2 && cond3))) {
+            Log.d(TAG, "calling ASPlayer.flushDvr/flush at " + JDvrCommon.getCallerInfo(3));
+            mASPlayer.flushDvr();
+            mASPlayer.flush();
+            mJDvrFile.seek(mSession.mTargetSeekPos * 1000);
+            if (cond1) {
+                Log.d(TAG,"First seek to "+mSession.mTargetSeekPos+"s in starting phase");
+                mSession.mStartingPhaseSeek1Done = true;
+                if (cond5) {
+                    // For radio recording, do not do 2nd seek for there is
+                    // no TsPlaybackListener.AudioDecoderInitCompletedEvent event
+                    mSession.mTargetSeekPos = null;
+                }
+            } else {
+                Log.d(TAG,"Second seek to "+mSession.mTargetSeekPos+"s in starting phase");
+                mSession.mStartingPhaseSeek2Done = true;
+                mSession.mTargetSeekPos = null;
+            }
+            // Clear outdated PTS events cached in the queue prior to seek.
+            if (mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
+                mPlaybackHandler.removeCallbacks(mPtsRunnable);
+            }
+        }
+        final boolean condA = (-1 == injectData());
+        if (cond4 && condA) {
             mSession.mIsEOS = true;
         }
     }
@@ -649,7 +683,10 @@ public class JDvrPlayer {
         }
         if (cond6) {
             if (mLastTrickModeTimestamp == 0) {
-                mLastTrickModeTimeOffset = mJDvrFile.getPlayingTime();
+                final long playingTime = mJDvrFile.getPlayingTime();
+                if (playingTime >= 0) {
+                    mLastTrickModeTimeOffset = playingTime;
+                }
             }
             mLastTrickModeTimestamp = curTs;
             long newOffset = (int) (mLastTrickModeTimeOffset + mSession.mTargetSpeed * 1000);
@@ -764,6 +801,7 @@ public class JDvrPlayer {
         InputBuffer inputBuffer;
         if (mPendingInputBuffer == null) {
             final int len = mJDvrFile.read(buffer,0,READ_LEN);
+            //Log.d(TAG,"JDvrFile.read returns: "+len);
             if (len == 0 || len == -1) {
                 return len;
             }
@@ -774,6 +812,7 @@ public class JDvrPlayer {
         int len2 = 0;
         try {
             len2 = mASPlayer.writeData(inputBuffer,0);
+            //Log.d(TAG,"ASPlayer.writeData returns: "+len2);
         } catch (NullPointerException e) {
             mPendingInputBuffer = inputBuffer;
             //Log.w(TAG, "Exception: " + e);
@@ -813,6 +852,11 @@ public class JDvrPlayer {
     }
     private void notifyProgress() {
         //Log.d(TAG,"JDvrPlayer.notifyProgress");
+        final long playingTime = mJDvrFile.getPlayingTime();
+        if (playingTime == -1) {
+            Log.w(TAG,"Failed to get playing time, so skip notifying progress this time");
+            return;
+        }
         JDvrPlaybackProgress progress = new JDvrPlaybackProgress();
         progress.sessionNumber = mSession.mSessionNumber;
         progress.state = mSession.mState;
@@ -820,7 +864,7 @@ public class JDvrPlayer {
         progress.duration = mJDvrFile.duration();
         progress.startTime = mJDvrFile.getStartTime();
         progress.endTime = progress.startTime + progress.duration;
-        progress.currTime = mJDvrFile.getPlayingTime();
+        progress.currTime = playingTime;
         progress.numberOfSegments = mJDvrFile.getNumberOfSegments();
         progress.firstSegmentId = mJDvrFile.getFirstSegmentId();
         progress.lastSegmentId = mJDvrFile.getLastSegmentId();

@@ -622,13 +622,14 @@ class JDvrSegment {
     }
     private Integer findMatchingIndexByTimeOffset(long time) {
         if (mMode == 0) { throw new RuntimeException("Cannot do this under Recording situation"); }
-        final int len = mTimeOffsetIndexArray.size();
+        int len = mTimeOffsetIndexArray.size();
         final boolean cond1 = (len == 0);
         final boolean cond2 = (!cond1 && mTimeOffsetIndexArray.get(len - 1).time < time);
         final boolean cond3 = (mLoadLevel < 3);
         final boolean cond4 = (mLoadLevel == 3);
         if (cond1 || cond3 || (cond2 && cond4)) {
             load(3);
+            len = mTimeOffsetIndexArray.size();
         }
         final JDvrSegmentTimeOffsetIndex ref = new JDvrSegmentTimeOffsetIndex(time,0L,0L);
         int i = Collections.binarySearch(mTimeOffsetIndexArray,ref,mIndexTimeCmp);

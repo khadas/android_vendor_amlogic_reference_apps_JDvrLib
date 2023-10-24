@@ -623,6 +623,7 @@ public class TestInstance implements OnTuneEventListener,
             Log.e(TAG, "stopPlayback, JDvrPlayer is invalid");
             return;
         }
+        mProgress = null;
         mJDvrPlayer.stop();
     }
     private void setSpeed(double speed) {
@@ -644,11 +645,13 @@ public class TestInstance implements OnTuneEventListener,
             Log.e(TAG, "seekFromCurPos, JDvrPlayer is invalid");
             return;
         }
-        if (mProgress == null) {
-            return;
+        int seconds = 0;
+        if (mProgress != null) {
+            seconds = (int)mProgress.currTime/1000 + offset_in_sec;
+            seconds = Math.max((int)mProgress.startTime/1000,Math.min((int)mProgress.endTime/1000,seconds));
+        } else {
+            seconds = Math.max(offset_in_sec,0);
         }
-        int seconds = (int)mProgress.currTime/1000 + offset_in_sec;
-        seconds = Math.max((int)mProgress.startTime/1000,Math.min((int)mProgress.endTime/1000,seconds));
         mJDvrPlayer.seek(seconds);
     }
     private void deleteFile(final int rec_id) {
@@ -926,11 +929,17 @@ public class TestInstance implements OnTuneEventListener,
                     break;
                 case TaskMsg.TASK_MSG_NATIVE_STOP_PLAYBACK:
                     native_stopPlayback();
+                    mProgress = null;
                     mPlayingFileHandle = 0;
                     break;
                 case TaskMsg.TASK_MSG_NATIVE_SEEK:
-                    int seconds = (int)mProgress.currTime/1000 + message.arg1;
-                    seconds = Math.max((int)mProgress.startTime/1000,Math.min((int)mProgress.endTime/1000,seconds));
+                    int seconds = 0;
+                    if (mProgress != null) {
+                        seconds = (int) mProgress.currTime / 1000 + message.arg1;
+                        seconds = Math.max((int) mProgress.startTime / 1000, Math.min((int) mProgress.endTime / 1000, seconds));
+                    } else {
+                        seconds = Math.max(message.arg1,0);
+                    }
                     native_seek(seconds);
                     break;
                 case TaskMsg.TASK_MSG_NATIVE_SET_SPEED:
