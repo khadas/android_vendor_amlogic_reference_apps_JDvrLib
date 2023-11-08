@@ -51,6 +51,7 @@ public class JDvrPlayer {
         private boolean mTrickModeBySeekIsOn = false;
         private boolean mHasPausedDecoding = false;
         private boolean mVideoDecoderInitReceived = false;
+        private boolean mAudioFormatChangeReceived = false;
         private boolean mStartingPhaseSeek1Done = false;
         private boolean mStartingPhaseSeek2Done = false;
 
@@ -252,6 +253,8 @@ public class JDvrPlayer {
                 mPlaybackHandler.postAtFrontOfQueue(() -> mSession.mFirstAudioFrameReceived = true);
             } else if (playbackEvent instanceof TsPlaybackListener.VideoDecoderInitCompletedEvent) {
                 mPlaybackHandler.postAtFrontOfQueue(() -> mSession.mVideoDecoderInitReceived = true);
+            } else if (playbackEvent instanceof TsPlaybackListener.AudioFormatChangeEvent) {
+                mPlaybackHandler.postAtFrontOfQueue(() -> mSession.mAudioFormatChangeReceived = true);
             } else if (playbackEvent instanceof TsPlaybackListener.PtsEvent) {
                 if (count++%8 == 0) { // Ignore 7/8 PTS events
                     mLastPts = ((PtsEvent) playbackEvent).mPts * 90 / 1000;     // Original PTS in 90KHz
@@ -394,7 +397,8 @@ public class JDvrPlayer {
             final boolean cond2 = isSmoothPlaySpeed(mSession.mTargetSpeed);
             final boolean cond3 = isSkippingPlaySpeed(mSession.mTargetSpeed);
             final boolean cond4 = (mSession.mTargetSpeed == 0.0d);
-            if (cond1) {
+            final boolean cond5 = mSession.mFirstAudioFrameReceived;
+            if (cond1 || cond5) {
                 if (cond2) {
                     mSession.mState = JDvrPlaybackSession.SMOOTH_PLAYING_STATE;
                     Log.i(TAG, "State transition: STARTING => SMOOTH_PLAYING");
@@ -523,22 +527,16 @@ public class JDvrPlayer {
         final boolean cond1 = !mSession.mStartingPhaseSeek1Done;
         final boolean cond2 = !mSession.mStartingPhaseSeek2Done;
         final boolean cond3 = mSession.mVideoDecoderInitReceived;
-        final boolean cond4 = !mSession.mRecordingIsUpdatedLately;
-        final boolean cond5 = (mJDvrFile.getVideoPID() == 0x1fff);
+        final boolean cond4 = mSession.mAudioFormatChangeReceived;
+        final boolean cond5 = !mSession.mRecordingIsUpdatedLately;
         final boolean cond6 = (mSession.mTargetSeekPos != null);
-        if (cond6 && (cond1 || (cond2 && cond3))) {
-            Log.d(TAG, "calling ASPlayer.flushDvr/flush at " + JDvrCommon.getCallerInfo(3));
+        if (cond6 && (cond1 || (cond2 && (cond3 || cond4)))) {
+            Log.d(TAG, "calling ASPlayer.flushDvr at " + JDvrCommon.getCallerInfo(3));
             mASPlayer.flushDvr();
-            mASPlayer.flush();
             mJDvrFile.seek(mSession.mTargetSeekPos * 1000);
             if (cond1) {
                 Log.d(TAG,"First seek to "+mSession.mTargetSeekPos+"s in starting phase");
                 mSession.mStartingPhaseSeek1Done = true;
-                if (cond5) {
-                    // For radio recording, do not do 2nd seek for there is
-                    // no TsPlaybackListener.AudioDecoderInitCompletedEvent event
-                    mSession.mTargetSeekPos = null;
-                }
             } else {
                 Log.d(TAG,"Second seek to "+mSession.mTargetSeekPos+"s in starting phase");
                 mSession.mStartingPhaseSeek2Done = true;
@@ -550,7 +548,7 @@ public class JDvrPlayer {
             }
         }
         final boolean condA = (-1 == injectData());
-        if (cond4 && condA) {
+        if (cond5 && condA) {
             mSession.mIsEOS = true;
         }
     }
@@ -641,7 +639,6 @@ public class JDvrPlayer {
         final boolean cond5 = isSmoothPlaySpeed(mSession.mCurrentSpeed);
         final boolean cond6 = (curTs >= mLastTrickModeTimestamp + 1000);
         final boolean cond7 = !mSession.mRecordingIsUpdatedLately;
-        //final boolean cond8 = mSession.mFirstVideoFrameReceived;
         mSession.mIsStarting = false;
         mSession.mControllerToStart = false;
         if (cond1 && cond7) {
@@ -727,7 +724,8 @@ public class JDvrPlayer {
         final boolean cond6 = mSession.mFirstVideoFrameReceived;
         final boolean cond7 = !mSession.mRecordingIsUpdatedLately;
         final boolean cond8 = !mSession.mHasPausedDecoding;
-        if (!cond6) {
+        final boolean cond9 = mSession.mFirstAudioFrameReceived;
+        if (!(cond6 || cond9)) {
             final int len = injectData();
             Log.d(TAG,"injected "+len+" bytes in PAUSED state");
         }
@@ -747,18 +745,21 @@ public class JDvrPlayer {
             if (ret == 0) {
                 speedTransition();
                 mSession.mFirstVideoFrameReceived = false;
+                mSession.mFirstAudioFrameReceived = false;
             } else {
                 Log.e(TAG,"ASPlayer.pauseVideoDecoding returns "+ret);
             }
         } else if (cond3) {
             speedTransition();
             mSession.mFirstVideoFrameReceived = false;
+            mSession.mFirstAudioFrameReceived = false;
         } else if (cond5) {
             Log.d(TAG,"calling ASPlayer.flushDvr/flush at "+JDvrCommon.getCallerInfo(3));
             mASPlayer.flushDvr();
             mASPlayer.flush();
             mJDvrFile.seek(mSession.mTargetSeekPos*1000);
             mSession.mFirstVideoFrameReceived = false;
+            mSession.mFirstAudioFrameReceived = false;
             mSession.mTargetSeekPos = null;
             // Clear outdated PTS events cached in the queue prior to seek.
             if (mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
@@ -798,39 +799,36 @@ public class JDvrPlayer {
     }
     private int injectData() {
         byte[] buffer = new byte [READ_LEN];
-        InputBuffer inputBuffer;
         if (mPendingInputBuffer == null) {
+            // Only allow to read new data when there is no pending data.
             final int len = mJDvrFile.read(buffer,0,READ_LEN);
-            //Log.d(TAG,"JDvrFile.read returns: "+len);
+            //Log.d(TAG,"injectData, JDvrFile.read returns: "+len);
             if (len == 0 || len == -1) {
                 return len;
             }
-            inputBuffer = new InputBuffer(buffer,0,len);
-        } else {
-            inputBuffer = mPendingInputBuffer;
+            mPendingInputBuffer = new InputBuffer(buffer,0,len);
+        }
+        if (mPendingInputBuffer.mBufferSize <= 0) {
+            mPendingInputBuffer = null;
+            return 0;
         }
         int len2 = 0;
         try {
-            len2 = mASPlayer.writeData(inputBuffer,0);
-            //Log.d(TAG,"ASPlayer.writeData returns: "+len2);
+            len2 = mASPlayer.writeData(mPendingInputBuffer,0);
+            //Log.d(TAG,"injectData, ASPlayer.writeData returns: "+len2);
         } catch (NullPointerException e) {
-            mPendingInputBuffer = inputBuffer;
             //Log.w(TAG, "Exception: " + e);
             return 0;
         }
-        if (len2 == inputBuffer.mBufferSize) {
+        if (len2 == mPendingInputBuffer.mBufferSize) {
             mPendingInputBuffer = null;
-        } else if (len2 > 0 && len2 < inputBuffer.mBufferSize) {
-            inputBuffer.mOffset += len2;
-            inputBuffer.mBufferSize -= len2;
-            mPendingInputBuffer = inputBuffer;
+        } else if (len2 > 0 && len2 < mPendingInputBuffer.mBufferSize) {
+            mPendingInputBuffer.mOffset += len2;
+            mPendingInputBuffer.mBufferSize -= len2;
         } else if (len2 < 0) {
-            if (len2 == INFO_BUSY) {
-                mPendingInputBuffer = inputBuffer;
-            }
             len2 = 0;
         }
-        //Log.d(TAG,"injected "+len2+" bytes");
+        //Log.d(TAG,"injectData, injected "+len2+" bytes, remains:"+(mPendingInputBuffer!=null?mPendingInputBuffer.mBufferSize:0)+" bytes");
         return len2;
     }
     private boolean isSmoothPlaySpeed(double speed) {
