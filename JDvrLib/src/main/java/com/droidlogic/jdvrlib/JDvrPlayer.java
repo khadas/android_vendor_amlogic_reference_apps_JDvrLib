@@ -398,6 +398,7 @@ public class JDvrPlayer {
             final boolean cond3 = isSkippingPlaySpeed(mSession.mTargetSpeed);
             final boolean cond4 = (mSession.mTargetSpeed == 0.0d);
             final boolean cond5 = mSession.mFirstAudioFrameReceived;
+            final boolean cond6 = mSession.mIsStopping;
             if (cond1 || cond5) {
                 if (cond2) {
                     mSession.mState = JDvrPlaybackSession.SMOOTH_PLAYING_STATE;
@@ -409,6 +410,10 @@ public class JDvrPlayer {
                     mSession.mState = JDvrPlaybackSession.PAUSED_STATE;
                     Log.i(TAG, "State transition: STARTING => PAUSED");
                 }
+            }
+            if (cond6) {
+                mSession.mState = JDvrPlaybackSession.STOPPING_STATE;
+                Log.i(TAG, "State transition: STARTING => STOPPING");
             }
         } else if (mSession.mState == JDvrPlaybackSession.SMOOTH_PLAYING_STATE) {
             final boolean cond1 = mSession.mIsStopping;
@@ -490,7 +495,14 @@ public class JDvrPlayer {
     private void handlingInitialState() {
         if (mSession.mControllerToStart || mSession.mControllerToPause) {
             Log.d(TAG,"calling ASPlayer.flushDvr at "+JDvrCommon.getCallerInfo(3));
-            mASPlayer.flushDvr();
+            try { // Consider ASPlayer may have already been released at DTVKit side
+                mASPlayer.flushDvr();
+            } catch (NullPointerException e) {
+                Log.w(TAG, "Exception: " + e);
+                mSession.mControllerToStart = false;
+                mSession.mControllerToPause = false;
+                return;
+            }
             Log.d(TAG,"calling ASPlayer.startVideoDecoding at "+JDvrCommon.getCallerInfo(3));
             if (mASPlayer.startVideoDecoding() < 0) {
                 Log.e(TAG, "ASPlayer.startVideoDecoding fails");
@@ -513,7 +525,7 @@ public class JDvrPlayer {
         } else if (mSession.mControllerToExit || mSession.mIsEOS) {
             mJDvrFile.close();
             mJDvrFile = null;
-            try {
+            try { // Consider ASPlayer may have already been released at DTVKit side
                 mASPlayer.removePlaybackListener(mTsPlaybackListener);
             } catch (NullPointerException e) {
                 Log.w(TAG, "Exception: " + e);
@@ -530,6 +542,7 @@ public class JDvrPlayer {
         final boolean cond4 = mSession.mAudioFormatChangeReceived;
         final boolean cond5 = !mSession.mRecordingIsUpdatedLately;
         final boolean cond6 = (mSession.mTargetSeekPos != null);
+        final boolean cond7 = mSession.mControllerToExit;
         if (cond6 && (cond1 || (cond2 && (cond3 || cond4)))) {
             Log.d(TAG, "calling ASPlayer.flushDvr at " + JDvrCommon.getCallerInfo(3));
             mASPlayer.flushDvr();
@@ -546,6 +559,9 @@ public class JDvrPlayer {
             if (mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
                 mPlaybackHandler.removeCallbacks(mPtsRunnable);
             }
+        }
+        if (cond7) {
+            mSession.mIsStopping = true;
         }
         final boolean condA = (-1 == injectData());
         if (cond5 && condA) {
@@ -779,8 +795,10 @@ public class JDvrPlayer {
         }
     }
     private void handlingStoppingState() {
+        mSession.mIsStarting = false;
+        mSession.mControllerToStart = false;
         if (mSession.mIsStopping) {
-            try {
+            try { // Consider ASPlayer may have already been released at DTVKit side
                 Log.d(TAG, "calling ASPlayer.stopVideoDecoding at " + JDvrCommon.getCallerInfo(3));
                 mASPlayer.stopVideoDecoding();
                 mASPlayer.stopAudioDecoding();
