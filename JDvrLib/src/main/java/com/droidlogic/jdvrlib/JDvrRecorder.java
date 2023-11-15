@@ -413,19 +413,21 @@ public class JDvrRecorder {
             final int len = (int)(lastEvent.getDataLength() - mLastEvent.getDataLength());
             mLastEvent = lastEvent;
             //Log.d(TAG,"delta:"+len+", getDataLength:"+mLastEvent.getDataLength());
-            byte[] buffer = new byte[len];
-            final int sum = (int)mDvrRecorder.write(buffer, 0, len);
-            if (sum > 0 && !mSession.mIOError) {
-                final long pts = mLastEvent.getPts();
-                try {
-                    mJDvrFile.write(buffer, 0, sum, pts);
-                } catch (Exception e) {
-                    Log.e(TAG, "Exception: " + e);
-                    e.printStackTrace();
-                    mSession.mIOError = true;
-                    mSession.mTimestampOfLastIOErrorNotify = curTs;
-                    mSession.mHaveSentIOErrorNotify = false;
-                    return;
+            if (len > 0) {
+                byte[] buffer = new byte[len];
+                final int sum = (int)mDvrRecorder.write(buffer, 0, len);
+                if (sum > 0 && !mSession.mIOError) {
+                    final long pts = mLastEvent.getPts();
+                    try {
+                        mJDvrFile.write(buffer, 0, sum, pts);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
+                        e.printStackTrace();
+                        mSession.mIOError = true;
+                        mSession.mTimestampOfLastIOErrorNotify = curTs;
+                        mSession.mHaveSentIOErrorNotify = false;
+                        return;
+                    }
                 }
             }
             if (mSession.mTimestampOfLastProgressNotify == 0
@@ -446,7 +448,7 @@ public class JDvrRecorder {
                         Log.e(TAG, "Filter.stop() on PID " + pid + " fails.");
                     }
                 } catch (IllegalStateException e) {
-                    Log.e(TAG, "Exception: " + e);
+                    Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
                     e.printStackTrace();
                 }
             });
@@ -468,7 +470,7 @@ public class JDvrRecorder {
                 Log.d(TAG,"calling DvrRecorder.close() at "+JDvrCommon.getCallerInfo(3));
                 mDvrRecorder.close();
             } catch (IllegalStateException e) {
-                Log.e(TAG, "Exception: " + e);
+                Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
                 e.printStackTrace();
             }
             mJDvrFile.close();
@@ -488,9 +490,11 @@ public class JDvrRecorder {
             TsRecordEvent lastEvent = mSession.mTsDataToProcess.get(size-1);
             final int len = (int)(lastEvent.getDataLength() - mLastEvent.getDataLength());
             mLastEvent = lastEvent;
-            byte[] buffer = new byte[len];
-            mDvrRecorder.write(buffer, 0, len);
-            // In Paused state, it just discards coming data, so there is no further handling of the data
+            if (len > 0) {
+                byte[] buffer = new byte[len];
+                mDvrRecorder.write(buffer, 0, len);
+                // In Paused state, it just discards coming data, so there is no further handling of the data
+            }
         }
         mSession.mTsDataToProcess.clear();
         if (mSession.mControllerToStart) {
@@ -564,12 +568,12 @@ public class JDvrRecorder {
             }
         });
         // 2. Determine a stream for retrieving PTS
-        final boolean hasVideo = mSession.mStreams.stream().anyMatch(s -> (s.type == JDvrStreamType.STREAM_TYPE_VIDEO));
-        if (hasVideo) {
-            mSession.mStreams.stream().filter(s -> (s.type == JDvrStreamType.STREAM_TYPE_VIDEO)).findFirst()
-                    .ifPresent(stream4 -> stream4.flags |= JDvrStreamInfo.TO_ACQUIRE_PTS);
+        JDvrStreamInfo stream4 = mSession.mStreams.stream().filter(s -> (s.type == JDvrStreamType.STREAM_TYPE_VIDEO && (s.flags & JDvrStreamInfo.TO_BE_REMOVED) == 0))
+                .findFirst().orElse(null);
+        if (stream4 != null) {
+            stream4.flags |= JDvrStreamInfo.TO_ACQUIRE_PTS;
         } else {
-            JDvrStreamInfo stream5 = mSession.mStreams.stream().filter(s -> (s.type == JDvrStreamType.STREAM_TYPE_AUDIO))
+            JDvrStreamInfo stream5 = mSession.mStreams.stream().filter(s -> (s.type == JDvrStreamType.STREAM_TYPE_AUDIO && (s.flags & JDvrStreamInfo.TO_BE_REMOVED) == 0))
                     .findFirst().orElse(null);
             if (stream5 != null) {
                 stream5.flags |= JDvrStreamInfo.TO_ACQUIRE_PTS;
@@ -604,7 +608,7 @@ public class JDvrRecorder {
                     Log.d(TAG,"calling Filter.close() for pid "+stream.pid+" at "+JDvrCommon.getCallerInfo(3));
                     f.close();
                 } catch (Exception e) {
-                    Log.e(TAG, "Exception: " + e);
+                    Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
                     e.printStackTrace();
                 }
                 stream.flags &= ~(JDvrStreamInfo.FILTER_IS_RUNNING | JDvrStreamInfo.ACQUIRING_PTS);
@@ -693,7 +697,7 @@ public class JDvrRecorder {
             try {
                 mRecordingHandler.postDelayed(this, 20L);
             } catch (IllegalStateException e) {
-                Log.e(TAG, "Exception: " + e);
+                Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
                 e.printStackTrace();
                 return;
             }
@@ -748,7 +752,7 @@ public class JDvrRecorder {
             try {
                 mRecordingHandler.postDelayed(this, checkingInterval);
             } catch (IllegalStateException e) {
-                Log.e(TAG, "Exception: " + e);
+                Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
                 e.printStackTrace();
                 return;
             }

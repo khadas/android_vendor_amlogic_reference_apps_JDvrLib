@@ -173,7 +173,7 @@ public class JDvrFile {
                     mLastLoadedSegmentId = segment.id();
                 }
             } catch (IOException | NumberFormatException e) {
-                Log.e(TAG, "Exception: " + e);
+                Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
                 e.printStackTrace();
                 return false;
             }
@@ -212,7 +212,7 @@ public class JDvrFile {
                     }
                 }
             } catch (IOException e) {
-                Log.e(TAG, "Exception: " + e);
+                Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
                 e.printStackTrace();
                 return false;
             }
@@ -370,7 +370,7 @@ public class JDvrFile {
             lock.release();
             lockChannel.close();
         } catch (IOException e) {
-            Log.e(TAG, "Exception: " + e);
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             e.printStackTrace();
             return false;
         } catch (OverlappingFileLockException e) {
@@ -416,7 +416,7 @@ public class JDvrFile {
                 }
             }
         } catch (IOException e) {
-            Log.e(TAG, "Exception: " + e);
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             e.printStackTrace();
             return 0L;
         }
@@ -454,7 +454,7 @@ public class JDvrFile {
                 }
             }
         } catch (IOException e) {
-            Log.e(TAG, "Exception: " + e);
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             e.printStackTrace();
             return 0L;
         }
@@ -467,7 +467,11 @@ public class JDvrFile {
         if (mSegments.size() > 0) {
             mSegments.forEach(JDvrSegment::close);
             if (mType<2) {
-                updateListFile();
+                try {
+                    updateListFile();
+                } catch (IOException e) {
+                    Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
+                }
             }
         }
         try {
@@ -558,7 +562,7 @@ public class JDvrFile {
     }
 
     // Private APIs
-    public int write (byte[] buffer, int offset, int size, long pts) {
+    public int write (byte[] buffer, int offset, int size, long pts) throws IOException {
         if (mType == 2) { throw new RuntimeException("Cannot do this under Playback situation"); }
         final long curTs = SystemClock.elapsedRealtime();
         JDvrSegment lastSegment = null;
@@ -644,7 +648,7 @@ public class JDvrFile {
         try {
             n = seg.read(buffer,offset,size);
         } catch (IOException e) {
-            Log.e(TAG, "Exception: " + e);
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             e.printStackTrace();
             return 0;
         }
@@ -660,7 +664,7 @@ public class JDvrFile {
                 try {
                     n = seg.read(buffer,offset,size);
                 } catch (IOException e) {
-                    Log.e(TAG, "Exception: " + e);
+                    Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
                     e.printStackTrace();
                     return 0;
                 }
@@ -725,16 +729,20 @@ public class JDvrFile {
         final long segmentTimeOffset = mPlayingTime - mSegments.get(segmentId).getStartTime();
         // Search pts in current index file.
         Long newSegmentPlayingTime = mSegments.get(segmentId).findPtsFrom(mLastPts,segmentTimeOffset);
-        if (newSegmentPlayingTime == null && mSegments.get(mSegments.size()-1).id() > segmentId) {
-            // Continue to search pts in next index file.
-            segmentId += 1;
-            newSegmentPlayingTime = mSegments.get(segmentId).findPtsFrom(mLastPts,0L);
-        }
         if (newSegmentPlayingTime != null) {
             mPlayingTime = mSegments.get(segmentId).getStartTime() + newSegmentPlayingTime;
         } else {
+            if (mSegments.get(mSegments.size()-1).id() > segmentId) {
+                // Continue to search pts in next index file.
+                newSegmentPlayingTime = mSegments.get(segmentId+1).findPtsFrom(mLastPts,0L);
+                if (newSegmentPlayingTime != null) {
+                    mPlayingTime = mSegments.get(segmentId+1).getStartTime() + newSegmentPlayingTime;
+                }
+            }
+        }
+        if (newSegmentPlayingTime == null) {
             Log.w(TAG,"Cannot find out matching index for pts "+mLastPts+" in segment:"
-                    +(segmentId-1)+" starting from offset:"+segmentTimeOffset+"ms and segment:"+segmentId);
+                    +(segmentId)+" starting from offset:"+segmentTimeOffset+"ms (and segment:"+(segmentId+1)+" if any)");
         }
         return (newSegmentPlayingTime != null) ? mPlayingTime : -1L;
     }
@@ -758,7 +766,7 @@ public class JDvrFile {
         mPidHasChanged = true;
         return true;
     }
-    private boolean updateStatFile() {
+    private boolean updateStatFile() throws IOException {
         if (mType == 2) { throw new RuntimeException("Cannot do this under Playback situation"); }
         final long total_size = size();
         final String statContent = String.format(Locale.US,
@@ -771,13 +779,12 @@ public class JDvrFile {
             statStream.write(statContent.getBytes(),0,statContent.length());
             statStream.close();
         } catch (IOException e) {
-            Log.e(TAG, "Exception: " + e);
-            e.printStackTrace();
-            return false;
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
+            throw e;
         }
         return true;
     }
-    public boolean updateListFile() {
+    public boolean updateListFile() throws IOException {
         if (mType == 2) { throw new RuntimeException("Cannot do this under Playback situation"); }
         try {
             FileOutputStream listStream = new FileOutputStream(mListPath, false);
@@ -786,15 +793,14 @@ public class JDvrFile {
                 try {
                     listStream.write(line.getBytes(), 0, line.length());
                 } catch (IOException e) {
-                    Log.e(TAG, "Exception: " + e);
+                    Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
                     e.printStackTrace();
                 }
             });
             listStream.close();
         } catch (IOException e) {
-            Log.e(TAG, "Exception: " + e);
-            e.printStackTrace();
-            return false;
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
+            throw e;
         }
         return true;
     }
@@ -839,7 +845,7 @@ public class JDvrFile {
             try {
                 lockFile.createNewFile();
             } catch (IOException e) {
-                Log.e(TAG, "Exception: " + e);
+                Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
                 e.printStackTrace();
                 return false;
             }

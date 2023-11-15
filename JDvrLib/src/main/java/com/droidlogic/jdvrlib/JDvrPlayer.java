@@ -152,7 +152,7 @@ public class JDvrPlayer {
             try {
                 mPlaybackHandler.postDelayed(this, 20L);
             } catch (IllegalStateException e) {
-                Log.e(TAG, "Exception: " + e);
+                Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
                 e.printStackTrace();
                 return;
             }
@@ -181,7 +181,7 @@ public class JDvrPlayer {
             try {
                 mPlaybackHandler.postDelayed(this, 1000L);
             } catch (IllegalStateException e) {
-                Log.e(TAG, "Exception: " + e);
+                Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
                 e.printStackTrace();
                 return;
             }
@@ -498,7 +498,7 @@ public class JDvrPlayer {
             try { // Consider ASPlayer may have already been released at DTVKit side
                 mASPlayer.flushDvr();
             } catch (NullPointerException e) {
-                Log.w(TAG, "Exception: " + e);
+                Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
                 mSession.mControllerToStart = false;
                 mSession.mControllerToPause = false;
                 return;
@@ -528,7 +528,7 @@ public class JDvrPlayer {
             try { // Consider ASPlayer may have already been released at DTVKit side
                 mASPlayer.removePlaybackListener(mTsPlaybackListener);
             } catch (NullPointerException e) {
-                Log.w(TAG, "Exception: " + e);
+                Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             }
             mPlaybackThread.quit();
             mSession.mControllerToExit = false;
@@ -805,7 +805,7 @@ public class JDvrPlayer {
                 Log.d(TAG, "calling ASPlayer.flushDvr at " + JDvrCommon.getCallerInfo(3));
                 mASPlayer.flushDvr();
             } catch (NullPointerException e) {
-                Log.w(TAG, "Exception: " + e);
+                Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             }
             mSession.mHaveStopped = true;
             if (mSession.mIsEOS) {
@@ -835,7 +835,7 @@ public class JDvrPlayer {
             len2 = mASPlayer.writeData(mPendingInputBuffer,0);
             //Log.d(TAG,"injectData, ASPlayer.writeData returns: "+len2);
         } catch (NullPointerException e) {
-            //Log.w(TAG, "Exception: " + e);
+            //Log.w(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             return 0;
         }
         if (len2 == mPendingInputBuffer.mBufferSize) {

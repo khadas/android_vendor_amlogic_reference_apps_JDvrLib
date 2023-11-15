@@ -293,7 +293,7 @@ class JDvrSegment {
                 mProcessedLines = lines.length;
             }
         } catch (IOException e) {
-            Log.e(TAG, "Exception: " + e);
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             e.printStackTrace();
         //} finally {
             //final long ts2 = SystemClock.elapsedRealtime();
@@ -311,7 +311,7 @@ class JDvrSegment {
             }
             mLastWriteTimestamp = SystemClock.elapsedRealtime();
         } catch (IOException e) {
-            Log.e(TAG, "Exception: " + e);
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             e.printStackTrace();
             return 0;
         }
@@ -344,7 +344,7 @@ class JDvrSegment {
             }
             reader.endObject();
         } catch (IOException e) {
-            Log.e(TAG, "Exception: " + e);
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             e.printStackTrace();
         }
         if (timeOffset >= 0) {
@@ -360,7 +360,7 @@ class JDvrSegment {
             mIndexStream.seek(mIndexStream.length());
             mIndexStream.write(buffer, 0, size);
         } catch (IOException e) {
-            Log.e(TAG, "Exception: " + e);
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             e.printStackTrace();
             return 0;
         }
@@ -374,7 +374,7 @@ class JDvrSegment {
             ret = mTsStream.read(buffer,offset,size);
             mLastReadOffset = (ret == -1) ? mTsStream.length() : mLastReadOffset + ret;
         } catch (IOException e) {
-            Log.e(TAG, "Exception: " + e);
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             e.printStackTrace();
             return 0;
         }
@@ -390,7 +390,7 @@ class JDvrSegment {
             mTsStream.seek(pos);
             mLastReadOffset = pos;
         } catch (IOException e) {
-            Log.e(TAG, "Exception: " + e);
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             e.printStackTrace();
         }
     }
@@ -401,7 +401,7 @@ class JDvrSegment {
             mIndexStream.close();
             mIndexStream = null;
         } catch (IOException e) {
-            Log.e(TAG, "Exception: " + e);
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             e.printStackTrace();
         }
     }
@@ -506,7 +506,7 @@ class JDvrSegment {
                 return new JDvrSegmentTimeOffsetIndex(timeOffset,offset,pts);
             }
         } catch (IOException e) {
-            Log.e(TAG, "Exception: " + e);
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             e.printStackTrace();
         }
         return null;
@@ -572,7 +572,7 @@ class JDvrSegment {
                 return new JDvrSegmentTimeStreamIndex(timeOffset,timeOffsetFromOrigin,id,pids);
             }
         } catch (IOException e) {
-            Log.e(TAG, "Exception: " + e);
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             e.printStackTrace();
         }
         return null;
