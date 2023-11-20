@@ -21,6 +21,7 @@ import android.util.Log;
 import com.droidlogic.jdvrlib.JDvrCommon.*;
 import com.droidlogic.jdvrlib.OnJDvrRecorderEventListener.JDvrRecorderEvent;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Locale;
@@ -86,6 +87,7 @@ public class JDvrRecorder {
         private boolean mDiskFull = false;
         private boolean mHaveSentDiskFullNotify = false;
         private boolean mBufferOverflow = false;
+        private boolean mFilesReady = false;
         private final ArrayList<JDvrStreamInfo> mStreams = new ArrayList<>();
         private final ArrayList<JDvrStreamInfo> mStreamsPending = new ArrayList<>();
         private final ArrayList<TsRecordEvent> mTsDataToProcess = new ArrayList<>();
@@ -284,10 +286,13 @@ public class JDvrRecorder {
                 Log.i(TAG,"State transition: INITIAL => STARTING");
             }
         } else if (mSession.mState == JDvrRecordingSession.STARTING_STATE) {
-            if (mSession.mStreamOn == Boolean.TRUE) {
+            final boolean cond1 = (mSession.mStreamOn == Boolean.TRUE);
+            final boolean cond2 = (mSession.mStreamOn == Boolean.FALSE);
+            final boolean cond3 = mSession.mFilesReady;
+            if (cond1 && cond3) {
                 mSession.mState = JDvrRecordingSession.STARTED_STATE;
                 Log.i(TAG, "State transition: STARTING => STARTED");
-            } else if (mSession.mStreamOn == Boolean.FALSE) {
+            } else if (cond2 && cond3) {
                 mSession.mState = JDvrRecordingSession.PAUSED_STATE;
                 Log.i(TAG, "State transition: STARTING => PAUSED");
             }
@@ -386,6 +391,7 @@ public class JDvrRecorder {
         }
     }
     private void handlingStartingState() {
+        final long curTs = SystemClock.elapsedRealtime();
         if (mSession.mControllerToStart) {
             mFilters.forEach((pid,filter) -> {
                 Log.d(TAG,"calling Filter.start() for pid "+pid+" at "+JDvrCommon.getCallerInfo(3));
@@ -401,42 +407,35 @@ public class JDvrRecorder {
             });
             mSession.mControllerToStart = false;
         }
+        try {
+            processComingRecorderData();
+        } catch (IOException e) {
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
+            e.printStackTrace();
+            mSession.mIOError = true;
+            mSession.mTimestampOfLastIOErrorNotify = curTs;
+            mSession.mHaveSentIOErrorNotify = false;
+            return;
+        }
+        mSession.mFilesReady = (mJDvrFile.duration()>0);
     }
     private void handlingStartedState() {
         final long curTs = SystemClock.elapsedRealtime();
-        final int size = mSession.mTsDataToProcess.size();
-        if (size > 0) {
-            if (mLastEvent == null) {
-                mLastEvent = mSession.mTsDataToProcess.get(0);
-            }
-            TsRecordEvent lastEvent = mSession.mTsDataToProcess.get(size-1);
-            final int len = (int)(lastEvent.getDataLength() - mLastEvent.getDataLength());
-            mLastEvent = lastEvent;
-            //Log.d(TAG,"delta:"+len+", getDataLength:"+mLastEvent.getDataLength());
-            if (len > 0) {
-                byte[] buffer = new byte[len];
-                final int sum = (int)mDvrRecorder.write(buffer, 0, len);
-                if (sum > 0 && !mSession.mIOError) {
-                    final long pts = mLastEvent.getPts();
-                    try {
-                        mJDvrFile.write(buffer, 0, sum, pts);
-                    } catch (Exception e) {
-                        Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
-                        e.printStackTrace();
-                        mSession.mIOError = true;
-                        mSession.mTimestampOfLastIOErrorNotify = curTs;
-                        mSession.mHaveSentIOErrorNotify = false;
-                        return;
-                    }
-                }
-            }
-            if (mSession.mTimestampOfLastProgressNotify == 0
-                    || curTs >= mSession.mTimestampOfLastProgressNotify + interval3) {
-                notifyProgress();
-                mSession.mTimestampOfLastProgressNotify = curTs;
-            }
+        try {
+            processComingRecorderData();
+        } catch (IOException e) {
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
+            e.printStackTrace();
+            mSession.mIOError = true;
+            mSession.mTimestampOfLastIOErrorNotify = curTs;
+            mSession.mHaveSentIOErrorNotify = false;
+            return;
         }
-        mSession.mTsDataToProcess.clear();
+        if (mSession.mTimestampOfLastProgressNotify == 0
+                || curTs >= mSession.mTimestampOfLastProgressNotify + interval3) {
+            notifyProgress();
+            mSession.mTimestampOfLastProgressNotify = curTs;
+        }
         if (mSession.mPidChanged) {
             handlingPidChanges();
         }
@@ -911,5 +910,36 @@ public class JDvrRecorder {
         msg.obj = progress;
         onJDvrRecorderEvent(msg);
     }
-
+    private void processComingRecorderData() throws IOException {
+        final long curTs = SystemClock.elapsedRealtime();
+        final int size = mSession.mTsDataToProcess.size();
+        if (size > 0) {
+            if (mLastEvent == null) {
+                mLastEvent = mSession.mTsDataToProcess.get(0);
+            }
+            TsRecordEvent lastEvent = mSession.mTsDataToProcess.get(size-1);
+            final int len = (int)(lastEvent.getDataLength() - mLastEvent.getDataLength());
+            mLastEvent = lastEvent;
+            //Log.d(TAG,"delta:"+len+", getDataLength:"+mLastEvent.getDataLength());
+            if (len > 0) {
+                byte[] buffer = new byte[len];
+                final int sum = (int)mDvrRecorder.write(buffer, 0, len);
+                if (sum > 0 && !mSession.mIOError) {
+                    final long pts = mLastEvent.getPts();
+                    try {
+                        mJDvrFile.write(buffer, 0, sum, pts);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
+                        throw e;
+                    }
+                }
+            }
+            if (mSession.mTimestampOfLastProgressNotify == 0
+                    || curTs >= mSession.mTimestampOfLastProgressNotify + interval3) {
+                notifyProgress();
+                mSession.mTimestampOfLastProgressNotify = curTs;
+            }
+        }
+        mSession.mTsDataToProcess.clear();
+    }
 }
