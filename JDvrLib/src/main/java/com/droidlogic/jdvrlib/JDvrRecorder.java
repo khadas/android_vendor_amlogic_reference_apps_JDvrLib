@@ -83,10 +83,10 @@ public class JDvrRecorder {
         // false: if there is not any PID change or those changes have already taken effect.
         private boolean mPidChanged = false;
         private boolean mIOError = false;
+        private boolean mFatalIOError = false;
         private boolean mHaveSentIOErrorNotify = false;
         private boolean mDiskFull = false;
         private boolean mHaveSentDiskFullNotify = false;
-        private boolean mBufferOverflow = false;
         private boolean mFilesReady = false;
         private final ArrayList<JDvrStreamInfo> mStreams = new ArrayList<>();
         private final ArrayList<JDvrStreamInfo> mStreamsPending = new ArrayList<>();
@@ -261,7 +261,7 @@ public class JDvrRecorder {
             Log.d(TAG, "onRecordStatusChanged status: STATUS_DATA_READY");
         } else if (status == Filter.STATUS_OVERFLOW) {
             Log.e(TAG, "onRecordStatusChanged status: STATUS_OVERFLOW");
-            mSession.mBufferOverflow = true;
+            mSession.mFatalIOError = true;
         } else if (status == Filter.STATUS_HIGH_WATER) {
             Log.w(TAG, "onRecordStatusChanged status: STATUS_HIGH_WATER");
         }
@@ -289,12 +289,16 @@ public class JDvrRecorder {
             final boolean cond1 = (mSession.mStreamOn == Boolean.TRUE);
             final boolean cond2 = (mSession.mStreamOn == Boolean.FALSE);
             final boolean cond3 = mSession.mFilesReady;
+            final boolean cond4 = mSession.mFatalIOError;
             if (cond1 && cond3) {
                 mSession.mState = JDvrRecordingSession.STARTED_STATE;
                 Log.i(TAG, "State transition: STARTING => STARTED");
             } else if (cond2 && cond3) {
                 mSession.mState = JDvrRecordingSession.PAUSED_STATE;
                 Log.i(TAG, "State transition: STARTING => PAUSED");
+            } else if (cond4) {
+                mSession.mState = JDvrRecordingSession.STOPPING_STATE;
+                Log.i(TAG, "State transition: STARTING => STOPPING");
             }
         } else if (mSession.mState == JDvrRecordingSession.STARTED_STATE) {
             final boolean cond1 = mSession.mIsStopping;
@@ -302,7 +306,7 @@ public class JDvrRecorder {
             final boolean cond3 = mSession.mControllerToPause;
             final boolean cond4 = mSession.mIOError;
             final boolean cond5 = mSession.mDiskFull;
-            final boolean cond6 = mSession.mBufferOverflow; // this overflow error seems not recoverable, so reluctantly end recording
+            final boolean cond6 = mSession.mFatalIOError;
             if (cond1 || cond6) {
                 Log.i(TAG,"State transition: STARTED => STOPPING");
                 mSession.mState = JDvrRecordingSession.STOPPING_STATE;
@@ -323,10 +327,11 @@ public class JDvrRecorder {
             final boolean cond3 = !mSession.mIOError;
             final boolean cond4 = mSession.mControllerToExit;
             final boolean cond5 = !mSession.mDiskFull;
+            final boolean cond6 = mSession.mFatalIOError;
             if (cond1 && cond2 && cond3 && cond5) {
                 Log.i(TAG,"State transition: PAUSED => STARTED");
                 mSession.mState = JDvrRecordingSession.STARTED_STATE;
-            } else if (cond4) {
+            } else if (cond4 || cond6) {
                 Log.i(TAG,"State transition: PAUSED => STOPPING");
                 mSession.mState = JDvrRecordingSession.STOPPING_STATE;
             }
@@ -413,6 +418,7 @@ public class JDvrRecorder {
             Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             e.printStackTrace();
             mSession.mIOError = true;
+            mSession.mFatalIOError = true;
             mSession.mTimestampOfLastIOErrorNotify = curTs;
             mSession.mHaveSentIOErrorNotify = false;
             return;
@@ -427,6 +433,7 @@ public class JDvrRecorder {
             Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             e.printStackTrace();
             mSession.mIOError = true;
+            mSession.mFatalIOError = true;
             mSession.mTimestampOfLastIOErrorNotify = curTs;
             mSession.mHaveSentIOErrorNotify = false;
             return;
@@ -460,7 +467,7 @@ public class JDvrRecorder {
         }
     }
     private void handlingStoppingState() {
-        if (mSession.mControllerToExit || mSession.mBufferOverflow) {
+        if (mSession.mControllerToExit || mSession.mFatalIOError) {
             for (Map.Entry<Integer, Filter> entry : mFilters.entrySet()) {
                 entry.getValue().close();
             }
@@ -758,7 +765,13 @@ public class JDvrRecorder {
 
             final String pathPrefix = mJDvrFile.getPathPrefix();
             final String dirname = pathPrefix.substring(0,pathPrefix.lastIndexOf('/'));
-            StatFs stat = new StatFs(dirname);
+            StatFs stat;
+            try {
+                stat = new StatFs(dirname);
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
+                return;
+            }
             final long diskAvailable = stat.getAvailableBlocksLong() * stat.getBlockSizeLong();
             Log.d(TAG,"Free disk space: " + (diskAvailable>>20) + " MB");
             mSession.mDiskFull = diskAvailable <= 0;
