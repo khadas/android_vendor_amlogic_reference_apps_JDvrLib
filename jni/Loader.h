@@ -63,7 +63,6 @@ public:
     jobject getJObject() { return mJavaJDvrFile; }
 
 private:
-    JNIEnv *mEnv;
     jobject mJavaJDvrFile;
 };
 
@@ -83,7 +82,6 @@ public:
     jobject getJObject() { return mJavaJDvrRecorder; }
 
 private:
-    JNIEnv *mEnv;
     jobject mJavaJDvrRecorder;
     on_recorder_event_callback mCallback;
 };
@@ -104,7 +102,6 @@ public:
     jobject getJObject() { return mJavaJDvrPlayer; }
 
 private:
-    JNIEnv *mEnv;
     jobject mJavaJDvrPlayer;
     on_player_event_callback mCallback;
 };
