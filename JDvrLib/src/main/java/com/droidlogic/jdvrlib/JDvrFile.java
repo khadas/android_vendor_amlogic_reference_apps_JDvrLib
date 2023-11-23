@@ -14,8 +14,10 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Locale;
@@ -166,7 +168,7 @@ public class JDvrFile {
                     final int segment_id = Integer.parseInt(tokens[0]);
                     final long start_time = Long.parseLong(tokens[1]);
                     final long duration = Long.parseLong(tokens[2]);
-                    JDvrSegment segment = new JDvrSegment(mPathPrefix, segment_id, (mType == 2 ? 1 : 0));
+                    JDvrSegment segment = new JDvrSegment(mPathPrefix, segment_id, (mType == 2 ? 1 : 0), 0);
                     segment.setStartTime(start_time);
                     segment.setDuration(duration);
                     mSegments.add(segment);
@@ -261,7 +263,7 @@ public class JDvrFile {
      */
     public int addSegment() {
         final int newID = getLastSegmentId() + 1;
-        JDvrSegment segment = new JDvrSegment(mPathPrefix, newID, (mType < 2) ? 0 : 1);
+        JDvrSegment segment = new JDvrSegment(mPathPrefix, newID, (mType < 2) ? 0 : 1, 0);
         mSegments.add(segment);
         Log.i(TAG,"addSegment, id:"+segment.id());
         return newID;
@@ -433,6 +435,13 @@ public class JDvrFile {
     public static long duration2(String pathPrefix) {
         long ret = 0L;
         final String statPath = pathPrefix + ".stat";
+        File statFile = new File(statPath);
+        if (!statFile.exists()) {
+            return 0L;
+        }
+        if (statFile.length() == 0) {
+            repairFiles(pathPrefix);
+        }
         try {
             final String[] lines = Files.readAllLines(Paths.get(statPath)).toArray(new String[0]);
             for (String line : lines) {
@@ -674,7 +683,7 @@ public class JDvrFile {
     }
     public boolean seek(int ms) {
         if (mType < 2) { throw new RuntimeException("Cannot do this under Recording situation"); }
-        JDvrSegment ref = new JDvrSegment("",-1, 2);
+        JDvrSegment ref = new JDvrSegment("",-1, 2, 0);
         ref.setStartTime(ms);
         int i = Collections.binarySearch(mSegments,ref,mStartTimeCmp);
         if (i >= mSegments.size()) {
@@ -889,5 +898,52 @@ public class JDvrFile {
         }
         JDvrSegment seg = mSegments.stream().filter(s -> (s.getStartTime() + s.duration()) >= timeOffset).findFirst().orElse(null);
         return (seg != null) ? seg.id() : -1;
+    }
+    private static boolean repairFiles(String pathPrefix) {
+        final String dirName = pathPrefix.substring(0,pathPrefix.lastIndexOf('/'));
+        File dir = new File(dirName);
+        if (!dir.exists()) {
+            Log.w(TAG,"Cannot repair recording, for "+dir.getAbsolutePath()+" doesn't exist.");
+            return false;
+        }
+        final File[] files = dir.listFiles((file, s) -> {
+            return (file.getAbsolutePath()+"/"+s).matches(pathPrefix+"-\\d+\\.idx");
+        });
+        if (files == null) {
+            Log.w(TAG,"Cannot repair recording "+pathPrefix+", for there is not any associated .idx files");
+            return false;
+        }
+        Arrays.sort(files, (f1, f2) -> f1.getName().compareTo(f2.getName()));
+        Integer[] segIds = Arrays.stream(files).map(File::toPath).map(Path::toString)
+                .map(s -> Integer.parseInt(s.substring(s.lastIndexOf('-')+1,s.lastIndexOf('.'))))
+                .toArray(Integer[]::new);
+        ArrayList<JDvrSegment> segments = new ArrayList<>();
+        for (Integer id : segIds) {
+            JDvrSegment seg = new JDvrSegment(pathPrefix, id,1,2);
+            segments.add(seg);
+        }
+        final long size = segments.stream().mapToLong(JDvrSegment::size).sum();
+        final long duration = segments.stream().mapToLong(JDvrSegment::duration).sum();
+        final int first_seg_id = segments.get(0).id();
+        final int last_seg_id = segments.get(segments.size()-1).id();
+        final String statContent = String.format(Locale.US,"{\"size\":%d, \"duration\":%d, "
+                +"\"packets\":%d, \"first_segment_id\":%d, \"last_segment_id\":%d, "
+                +"\"limit_size\":0, \"limit_duration\":0}",
+                size,duration,size/188,first_seg_id,last_seg_id);
+        //Log.d(TAG,"Repaired statContent:"+statContent);
+        final String listContent = segments.stream().map(JDvrSegment::toString).collect(Collectors.joining());
+        //Log.d(TAG,"Repaired listContent:"+listContent);
+        try {
+            FileOutputStream statStream = new FileOutputStream(pathPrefix+".stat", false);
+            statStream.write(statContent.getBytes(),0,statContent.length());
+            statStream.close();
+            FileOutputStream listStream = new FileOutputStream(pathPrefix+".list", false);
+            listStream.write(listContent.getBytes(),0,listContent.length());
+            listStream.close();
+        } catch (IOException e) {
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
+            return false;
+        }
+        return true;
     }
 }

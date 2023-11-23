@@ -79,7 +79,7 @@ class JDvrSegment {
         return String.format(Locale.US, "%d,%d,%d\n", mSegmentID, mStartTime, mDuration);
     }
 
-    public JDvrSegment(String path_prefix, int segment_id, int mode) {
+    public JDvrSegment(String path_prefix, int segment_id, int mode, int level) {
         mSegmentID = segment_id;
         mMode = mode;
         if (mMode == 2) {
@@ -90,7 +90,7 @@ class JDvrSegment {
             mPathPrefix = String.format(Locale.US, "%s-%04d", path_prefix, mSegmentID);
             mTsPath = String.format(Locale.US, "%s.ts", mPathPrefix);
             mIndexPath = String.format(Locale.US, "%s.idx", mPathPrefix);
-            load(0);
+            load(level);
         }
     }
 

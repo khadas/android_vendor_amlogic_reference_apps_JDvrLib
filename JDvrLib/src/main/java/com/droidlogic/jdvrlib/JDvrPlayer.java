@@ -297,6 +297,7 @@ public class JDvrPlayer {
         mSettings = (settings == null) ? JDvrPlayerSettings.builder().build() : settings;
         mListenerExecutor = ((executor != null) ? executor : mPlayerExecutor);
         mListener = ((listener != null) ? listener : new JNIJDvrPlayerListener(this));
+        Log.d(TAG,"calling ASPlayer.addPlaybackListener at "+JDvrCommon.getCallerInfo(3));
         mASPlayer.addPlaybackListener(mTsPlaybackListener);
         Log.d(TAG,"calling ASPlayer.flushDvr at "+JDvrCommon.getCallerInfo(3));
         mASPlayer.flushDvr();
@@ -526,7 +527,10 @@ public class JDvrPlayer {
             mJDvrFile.close();
             mJDvrFile = null;
             try { // Consider ASPlayer may have already been released at DTVKit side
+                Log.d(TAG,"calling ASPlayer.removePlaybackListener at "+JDvrCommon.getCallerInfo(3));
                 mASPlayer.removePlaybackListener(mTsPlaybackListener);
+                Log.d(TAG,"calling ASPlayer.release at "+JDvrCommon.getCallerInfo(3));
+                mASPlayer.release();
             } catch (NullPointerException e) {
                 Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             }
