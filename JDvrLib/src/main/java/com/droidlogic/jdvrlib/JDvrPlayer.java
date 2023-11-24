@@ -551,6 +551,7 @@ public class JDvrPlayer {
             Log.d(TAG, "calling ASPlayer.flushDvr at " + JDvrCommon.getCallerInfo(3));
             mASPlayer.flushDvr();
             mJDvrFile.seek(mSession.mTargetSeekPos * 1000);
+            mPendingInputBuffer = null;
             if (cond1) {
                 Log.d(TAG,"First seek to "+mSession.mTargetSeekPos+"s in starting phase");
                 mSession.mStartingPhaseSeek1Done = true;
@@ -631,6 +632,7 @@ public class JDvrPlayer {
             mASPlayer.flushDvr();
             mASPlayer.flush();
             mJDvrFile.seek(mSession.mTargetSeekPos*1000);
+            mPendingInputBuffer = null;
             mSession.mTargetSeekPos = null;
             // Clear outdated PTS events cached in the queue prior to seek.
             if (mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
@@ -680,6 +682,7 @@ public class JDvrPlayer {
             mASPlayer.flushDvr();
             mASPlayer.flush();
             mJDvrFile.seek(mSession.mTargetSeekPos*1000);
+            mPendingInputBuffer = null;
             mLastTrickModeTimestamp = curTs;
             mLastTrickModeTimeOffset = mSession.mTargetSeekPos*1000;
             mSession.mTargetSeekPos = null;
@@ -713,6 +716,7 @@ public class JDvrPlayer {
             mASPlayer.flushDvr();
             mASPlayer.flush();
             mJDvrFile.seek((int)newOffset);
+            mPendingInputBuffer = null;
             // Clear outdated PTS events cached in the queue prior to seek.
             if (mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
                 mPlaybackHandler.removeCallbacks(mPtsRunnable);
@@ -778,6 +782,7 @@ public class JDvrPlayer {
             mASPlayer.flushDvr();
             mASPlayer.flush();
             mJDvrFile.seek(mSession.mTargetSeekPos*1000);
+            mPendingInputBuffer = null;
             mSession.mFirstVideoFrameReceived = false;
             mSession.mFirstAudioFrameReceived = false;
             mSession.mTargetSeekPos = null;
