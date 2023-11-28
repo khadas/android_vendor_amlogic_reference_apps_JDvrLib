@@ -1,7 +1,5 @@
 package com.droidlogic.jdvrlib;
 
-import static com.amlogic.asplayer.api.ASPlayer.INFO_BUSY;
-
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Message;
@@ -324,8 +322,21 @@ public class JDvrPlayer {
      */
     public boolean stop() {
         Log.d(TAG,"JDvrLibAPI JDvrPlayer.stop");
+        final long ts1 = SystemClock.elapsedRealtime();
         mPlaybackHandler.sendMessage(
                 mPlaybackHandler.obtainMessage(JDvrPlaybackStatus.CONTROLLER_STATUS_TO_EXIT, null));
+        try {
+            mPlaybackThread.join(1000);
+        } catch (InterruptedException e) {
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
+        }
+        final long ts2 = SystemClock.elapsedRealtime();
+        final long diff = ts2 - ts1;
+        if (diff >= 1000) {
+            Log.w(TAG, "JDvrPlayer.stop took too long time " + diff + "ms");
+        } else {
+            Log.d(TAG, "JDvrPlayer.stop took " + diff + "ms");
+        }
         return true;
     }
     /**
@@ -534,7 +545,7 @@ public class JDvrPlayer {
             } catch (NullPointerException e) {
                 Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             }
-            mPlaybackThread.quit();
+            mPlaybackThread.quitSafely();
             mSession.mControllerToExit = false;
             mSession.mIsEOS = false;
         }
