@@ -648,14 +648,16 @@ public class JDvrRecorder {
                 int flags = RecordSettings.TS_INDEX_FIRST_PACKET;
                 if (cond5) {
                     if (stream.type == JDvrStreamType.STREAM_TYPE_VIDEO) {
-                        flags |= RecordSettings.MPT_INDEX_VIDEO;
-                    } else {
+                        // Comment it out for MPT_INDEX_VIDEO is not actually used in tunerhal
+                        //flags |= RecordSettings.MPT_INDEX_VIDEO;
+                    } else if (stream.type == JDvrStreamType.STREAM_TYPE_AUDIO) {
                         flags |= RecordSettings.MPT_INDEX_AUDIO;
                     }
                 }
                 RecordSettings.Builder builder = RecordSettings.builder(Filter.TYPE_TS);
                 builder.setTsIndexMask(flags);
-                if (cond5) {
+                if (cond5 && stream.type == JDvrStreamType.STREAM_TYPE_VIDEO) {
+                    // INDEX_TYPE_SC should be used only on video
                     builder.setScIndexType(RecordSettings.INDEX_TYPE_SC);
                 }
                 Settings recordSettings = builder.build();
