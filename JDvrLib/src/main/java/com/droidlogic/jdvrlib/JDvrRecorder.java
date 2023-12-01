@@ -290,13 +290,14 @@ public class JDvrRecorder {
             final boolean cond2 = (mSession.mStreamOn == Boolean.FALSE);
             final boolean cond3 = mSession.mFilesReady;
             final boolean cond4 = mSession.mFatalIOError;
+            final boolean cond5 = mSession.mControllerToExit;
             if (cond1 && cond3) {
                 mSession.mState = JDvrRecordingSession.STARTED_STATE;
                 Log.i(TAG, "State transition: STARTING => STARTED");
             } else if (cond2 && cond3) {
                 mSession.mState = JDvrRecordingSession.PAUSED_STATE;
                 Log.i(TAG, "State transition: STARTING => PAUSED");
-            } else if (cond4) {
+            } else if (cond4 || cond5) {
                 mSession.mState = JDvrRecordingSession.STOPPING_STATE;
                 Log.i(TAG, "State transition: STARTING => STOPPING");
             }
