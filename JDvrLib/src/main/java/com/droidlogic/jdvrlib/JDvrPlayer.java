@@ -540,8 +540,6 @@ public class JDvrPlayer {
             try { // Consider ASPlayer may have already been released at DTVKit side
                 Log.d(TAG,"calling ASPlayer.removePlaybackListener at "+JDvrCommon.getCallerInfo(3));
                 mASPlayer.removePlaybackListener(mTsPlaybackListener);
-                Log.d(TAG,"calling ASPlayer.release at "+JDvrCommon.getCallerInfo(3));
-                mASPlayer.release();
             } catch (NullPointerException e) {
                 Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             }
