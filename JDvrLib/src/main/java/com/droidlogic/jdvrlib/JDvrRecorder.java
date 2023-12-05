@@ -190,7 +190,7 @@ public class JDvrRecorder {
     private final OnJDvrRecorderEventListener mListener;
     private final Object mOnJDvrRecorderEventLock = new Object();
     private final Handler mRecordingHandler;
-    private final JDvrFile mJDvrFile;
+    private JDvrFile mJDvrFile;
     private TsRecordEvent mLastEvent = null;
 
     // Callbacks
@@ -392,7 +392,9 @@ public class JDvrRecorder {
             }
         }
         if (mSession.mControllerToExit) {
-            mRecordingThread.quit();
+            mJDvrFile.close();
+            mJDvrFile = null;
+            mRecordingThread.quitSafely();
             mSession.mControllerToExit = false;
         }
     }
@@ -480,7 +482,6 @@ public class JDvrRecorder {
                 Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
                 e.printStackTrace();
             }
-            mJDvrFile.close();
             mSession.mHaveStopped = true;
             // Here it resets the timestamp in order to speed up STREAM_OFF
             mSession.mTimestampOfLastDataReception = 0;
@@ -868,13 +869,22 @@ public class JDvrRecorder {
      * @return true if operation is successful, or false if there is any problem.
      */
     public boolean stop () {
-        Log.d(TAG, "JDvrLibAPI DvrRecorder.stop");
-        if (mDvrRecorder == null) {
-            Log.e(TAG, "stop: DvrRecorder is invalid");
-            return false;
-        }
+        Log.d(TAG, "JDvrLibAPI JDvrRecorder.stop");
+        final long ts1 = SystemClock.elapsedRealtime();
         mRecordingHandler.sendMessage(
                 mRecordingHandler.obtainMessage(JDvrRecordingStatus.CONTROLLER_STATUS_TO_EXIT,null));
+        try {
+            mRecordingThread.join(1000);
+        } catch (InterruptedException e) {
+            Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
+        }
+        final long ts2 = SystemClock.elapsedRealtime();
+        final long diff = ts2 - ts1;
+        if (diff >= 1000) {
+            Log.w(TAG, "JDvrRecorder.stop took too long time " + diff + "ms");
+        } else {
+            Log.d(TAG, "JDvrRecorder.stop took " + diff + "ms");
+        }
         return true;
     }
     /**
