@@ -588,12 +588,18 @@ class JDvrSegment {
         for (int j=i; j<mTimeOffsetIndexArray.size()-1; j++) {
             final JDvrSegmentTimeOffsetIndex idx0 = mTimeOffsetIndexArray.get(j);
             final JDvrSegmentTimeOffsetIndex idx1 = mTimeOffsetIndexArray.get(j+1);
-            if ( j > 0 && idx0.pts <= pts && idx1.pts >= pts) {
+            if ( j > 0 && idx0.pts <= pts && idx1.pts >= pts) { // handle common condition
                 return idx0.time;
-            } else if (j == 0 && idx1.pts > pts && idx1.pts - pts <= JDvrFile.mMinIndexInterval * 90 * 2) {
+            } else if (j == 0 && idx1.pts > pts && idx1.pts - pts <= JDvrFile.mPtsMargin) { // handle boundary condition 1
                 return idx0.time;
-            } else if (j+2 == len && pts > idx1.pts && pts - idx1.pts <= JDvrFile.mMinIndexInterval * 90 * 2) {
+            } else if (j+2 == len && pts > idx1.pts && pts - idx1.pts <= JDvrFile.mPtsMargin) { // handle boundary condition 2
                 return idx1.time;
+            } else if (idx0.pts > idx1.pts) { // handle loop condition
+                if (idx1.pts > pts && idx1.pts - pts <= JDvrFile.mPtsMargin) {
+                    return idx1.time;
+                } else if (pts > idx0.pts && pts - idx0.pts <= JDvrFile.mPtsMargin) {
+                    return idx1.time;
+                }
             }
         }
         return null;

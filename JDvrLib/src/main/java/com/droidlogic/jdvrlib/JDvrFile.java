@@ -42,6 +42,7 @@ public class JDvrFile {
     private long mTimestampOfOrigin = 0;
     private long mTotalObsoletePausedTime = 0;   // in ms
     final public static int mMinIndexInterval = 300;  // in ms
+    final public static int mPtsMargin = mMinIndexInterval * 90 * 2;  // in 90KHz
     private ArrayList<JDvrStreamInfo> mCurrentRecordingStreams = new ArrayList<>();
     private boolean mPidHasChanged = false;
     private final Comparator<JDvrSegment> mStartTimeCmp = Comparator.comparingLong(JDvrSegment::getStartTime);
@@ -574,7 +575,7 @@ public class JDvrFile {
     public int write (byte[] buffer, int offset, int size, long pts) throws IOException {
         if (mType == 2) { throw new RuntimeException("Cannot do this under Playback situation"); }
         final long curTs = SystemClock.elapsedRealtime();
-        JDvrSegment lastSegment = null;
+        JDvrSegment lastSegment;
         // 1. Add a segment if necessary
         {
             final boolean cond1 = (mSegments.size() == 0);
@@ -740,18 +741,20 @@ public class JDvrFile {
         Long newSegmentPlayingTime = mSegments.get(segmentId).findPtsFrom(mLastPts,segmentTimeOffset);
         if (newSegmentPlayingTime != null) {
             mPlayingTime = mSegments.get(segmentId).getStartTime() + newSegmentPlayingTime;
+            //Log.d(TAG,"Finding PTS1 "+mLastPts+" from seg#"+segmentId+"+off:"+segmentTimeOffset+"ms returns segmentPlayingTime:"+newSegmentPlayingTime+"ms PlayingTime:"+mPlayingTime+"ms");
         } else {
             if (mSegments.get(mSegments.size()-1).id() > segmentId) {
                 // Continue to search pts in next index file.
                 newSegmentPlayingTime = mSegments.get(segmentId+1).findPtsFrom(mLastPts,0L);
                 if (newSegmentPlayingTime != null) {
                     mPlayingTime = mSegments.get(segmentId+1).getStartTime() + newSegmentPlayingTime;
+                    //Log.d(TAG,"Finding PTS2 "+mLastPts+" from seg#"+segmentId+"+off:"+segmentTimeOffset+"ms returns segmentPlayingTime:"+newSegmentPlayingTime+"ms PlayingTime:"+mPlayingTime+"ms");
                 }
             }
         }
         if (newSegmentPlayingTime == null) {
-            Log.w(TAG,"Cannot find out matching index for pts "+mLastPts+" in segment:"
-                    +(segmentId)+" starting from offset:"+segmentTimeOffset+"ms (and segment:"+(segmentId+1)+" if any)");
+            Log.w(TAG,"Cannot find out matching index for pts "+mLastPts+" in seg#"
+                    +segmentId+" starting from offset:"+segmentTimeOffset+"ms (and seg#"+(segmentId+1)+" if any)");
         }
         return (newSegmentPlayingTime != null) ? mPlayingTime : -1L;
     }
@@ -906,14 +909,12 @@ public class JDvrFile {
             Log.w(TAG,"Cannot repair recording, for "+dir.getAbsolutePath()+" doesn't exist.");
             return false;
         }
-        final File[] files = dir.listFiles((file, s) -> {
-            return (file.getAbsolutePath()+"/"+s).matches(pathPrefix+"-\\d+\\.idx");
-        });
+        final File[] files = dir.listFiles((file, s) -> (file.getAbsolutePath()+"/"+s).matches(pathPrefix+"-\\d+\\.idx"));
         if (files == null) {
             Log.w(TAG,"Cannot repair recording "+pathPrefix+", for there is not any associated .idx files");
             return false;
         }
-        Arrays.sort(files, (f1, f2) -> f1.getName().compareTo(f2.getName()));
+        Arrays.sort(files, Comparator.comparing(File::getName));
         Integer[] segIds = Arrays.stream(files).map(File::toPath).map(Path::toString)
                 .map(s -> Integer.parseInt(s.substring(s.lastIndexOf('-')+1,s.lastIndexOf('.'))))
                 .toArray(Integer[]::new);

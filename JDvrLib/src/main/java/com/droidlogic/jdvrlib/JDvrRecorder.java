@@ -194,39 +194,36 @@ public class JDvrRecorder {
     private TsRecordEvent mLastEvent = null;
 
     // Callbacks
-    private final Handler.Callback mRecordingCallback = new Handler.Callback() {
-        @Override
-        public boolean handleMessage(Message message) {
-            //Log.d(TAG, "JDvrRecorder receives message, what:" + message.what);
-            // Rules:
-            // 1. Update status
-            // 2. Do *NOT* update state
-            // 3. Do *NOT* call Tuner APIs
-            if (message.what == JDvrRecordingStatus.STREAM_STATUS_PID_CHANGED) {
-                mSession.mStreamsPending.add((JDvrStreamInfo) message.obj);
-                mSession.mPidChanged = true;
-            } else if (message.what == JDvrRecordingStatus.CONTROLLER_STATUS_TO_START) {
-                if (isCmdInProgress()) {
-                    Log.i(TAG, "Just ignore this command as another command is in progress");
-                    return true;
-                }
-                mSession.mControllerToStart = true;
-                mSession.mTimestampForStreamOffReference = SystemClock.elapsedRealtime();
-            } else if (message.what == JDvrRecordingStatus.CONTROLLER_STATUS_TO_EXIT) {
-                if (isCmdInProgress()) {
-                    Log.i(TAG, "Just ignore this command as another command is in progress");
-                    return true;
-                }
-                mSession.mControllerToExit = true;
-            } else if (message.what == JDvrRecordingStatus.CONTROLLER_STATUS_TO_PAUSE) {
-                if (isCmdInProgress()) {
-                    Log.i(TAG, "Just ignore this command as another command is in progress");
-                    return true;
-                }
-                mSession.mControllerToPause = true;
+    private final Handler.Callback mRecordingCallback = message -> {
+        //Log.d(TAG, "JDvrRecorder receives message, what:" + message.what);
+        // Rules:
+        // 1. Update status
+        // 2. Do *NOT* update state
+        // 3. Do *NOT* call Tuner APIs
+        if (message.what == JDvrRecordingStatus.STREAM_STATUS_PID_CHANGED) {
+            mSession.mStreamsPending.add((JDvrStreamInfo) message.obj);
+            mSession.mPidChanged = true;
+        } else if (message.what == JDvrRecordingStatus.CONTROLLER_STATUS_TO_START) {
+            if (isCmdInProgress()) {
+                Log.i(TAG, "Just ignore this command as another command is in progress");
+                return true;
             }
-            return false;
+            mSession.mControllerToStart = true;
+            mSession.mTimestampForStreamOffReference = SystemClock.elapsedRealtime();
+        } else if (message.what == JDvrRecordingStatus.CONTROLLER_STATUS_TO_EXIT) {
+            if (isCmdInProgress()) {
+                Log.i(TAG, "Just ignore this command as another command is in progress");
+                return true;
+            }
+            mSession.mControllerToExit = true;
+        } else if (message.what == JDvrRecordingStatus.CONTROLLER_STATUS_TO_PAUSE) {
+            if (isCmdInProgress()) {
+                Log.i(TAG, "Just ignore this command as another command is in progress");
+                return true;
+            }
+            mSession.mControllerToPause = true;
         }
+        return false;
     };
     private final Executor mRecorderExecutor = new Executor() {
         public void execute(Runnable r) {
@@ -392,9 +389,9 @@ public class JDvrRecorder {
             }
         }
         if (mSession.mControllerToExit) {
+            mRecordingThread.quitSafely();
             mJDvrFile.close();
             mJDvrFile = null;
-            mRecordingThread.quitSafely();
             mSession.mControllerToExit = false;
         }
     }
@@ -407,11 +404,8 @@ public class JDvrRecorder {
                 if (result != Tuner.RESULT_SUCCESS) {
                     Log.e(TAG, "Filter.start() on PID " + pid + " fails. return value: "+result);
                 }
-                JDvrStreamInfo stream = mSession.mStreams.stream().filter(s -> (s.pid == pid))
-                        .findFirst().orElse(null);
-                if (stream != null) {
-                    stream.flags |= JDvrStreamInfo.FILTER_IS_RUNNING;
-                }
+                mSession.mStreams.stream().filter(s -> (s.pid == pid))
+                        .findFirst().ifPresent(stream -> stream.flags |= JDvrStreamInfo.FILTER_IS_RUNNING);
             });
             mSession.mControllerToStart = false;
         }
