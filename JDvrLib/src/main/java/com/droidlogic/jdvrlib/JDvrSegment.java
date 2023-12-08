@@ -44,6 +44,7 @@ class JDvrSegment {
     final private static String regex1 = ".*\"offset\":.*";
     final private static String regex2 = ".*nb_pids.*";
     private int mProcessedLines = 0;
+    private boolean mLastSegment = false;
     private final ArrayList<JDvrSegmentTimeOffsetIndex> mTimeOffsetIndexArray = new ArrayList<>();
     private final Comparator<JDvrSegmentTimeOffsetIndex> mIndexTimeCmp = Comparator.comparingLong(idx -> idx.time);
     private final Comparator<JDvrSegmentTimeOffsetIndex> mIndexOffsetCmp = Comparator.comparingLong(idx -> idx.offset);
@@ -421,7 +422,7 @@ class JDvrSegment {
         return mMaxSegmentSize;
     }
     public long duration() {
-        if (mMode == 1) { // only in case of playback we need to load() if necessary
+        if (mMode == 1 && mLastSegment) {
             load(2);
         }
         return mDuration;
@@ -475,6 +476,9 @@ class JDvrSegment {
         if (mMode == 0) { throw new RuntimeException("Cannot do this under Recording situation"); }
         Integer i = findMatchingIndexByOffset(offset);
         return (i != null) ? mTimeOffsetIndexArray.get(i).time : null;
+    }
+    public void setLastSegment(boolean isOrNot) {
+        this.mLastSegment = isOrNot;
     }
     // Private functions
     private JDvrSegmentTimeOffsetIndex parseTimeOffsetIndex(final String line) {

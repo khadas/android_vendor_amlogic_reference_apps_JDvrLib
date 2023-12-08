@@ -264,7 +264,11 @@ public class JDvrFile {
     public int addSegment() {
         final int newID = getLastSegmentId() + 1;
         JDvrSegment segment = new JDvrSegment(mPathPrefix, newID, (mType < 2) ? 0 : 1, 0);
+        segment.setLastSegment(true);
         mSegments.add(segment);
+        if (mSegments.size()>0) {
+            mSegments.get(mSegments.size()-1).setLastSegment(false);
+        }
         Log.i(TAG,"addSegment, id:"+segment.id());
         return newID;
     }
