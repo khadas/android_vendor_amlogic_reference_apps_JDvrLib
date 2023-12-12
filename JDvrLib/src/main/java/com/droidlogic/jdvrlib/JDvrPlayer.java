@@ -254,24 +254,19 @@ public class JDvrPlayer {
             } else if (playbackEvent instanceof TsPlaybackListener.AudioFormatChangeEvent) {
                 mPlaybackHandler.postAtFrontOfQueue(() -> mSession.mAudioFormatChangeReceived = true);
             } else if (playbackEvent instanceof TsPlaybackListener.PtsEvent) {
-                if (count++%8 == 0) { // Ignore 7/8 PTS events
-                    mLastPts = ((PtsEvent) playbackEvent).mPts * 90 / 1000;     // Original PTS in 90KHz
-                    if (mLastPts > 0) {
-                        if (mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
-                            mPlaybackHandler.removeCallbacks(mPtsRunnable);
-                        }
-                        //Log.d(TAG,"pts:"+mLastPts);
+                if (((PtsEvent) playbackEvent).mPts > 0) { // Here the mPts from ASPlayer is in microsecond (us)
+                    mLastPts = ((PtsEvent) playbackEvent).mPts * 90 / 1000;     // Convert it to original MPEG PTS in 90KHz and store it in mLastPts
+                    if (!mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
                         mPlaybackHandler.post(mPtsRunnable);
                     }
                 }
             }
         }
-        private long count = 0;
     };
     private final Runnable mPtsRunnable = new Runnable() {
         @Override
         public void run() {
-            // Here the mPts from ASPlayer is in microsecond (us)
+            //Log.d(TAG,"pts:"+mLastPts);
             mJDvrFile.updateLastPts(mLastPts);
         }
     };
@@ -535,8 +530,6 @@ public class JDvrPlayer {
             mSession.mIsStarting = true;
             mSession.mHaveStopped = false;
         } else if (mSession.mControllerToExit || mSession.mIsEOS) {
-            mJDvrFile.close();
-            mJDvrFile = null;
             try { // Consider ASPlayer may have already been released at DTVKit side
                 Log.d(TAG,"calling ASPlayer.removePlaybackListener at "+JDvrCommon.getCallerInfo(3));
                 mASPlayer.removePlaybackListener(mTsPlaybackListener);
@@ -544,6 +537,8 @@ public class JDvrPlayer {
                 Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             }
             mPlaybackThread.quitSafely();
+            mJDvrFile.close();
+            mJDvrFile = null;
             mSession.mControllerToExit = false;
             mSession.mIsEOS = false;
         }
@@ -848,7 +843,7 @@ public class JDvrPlayer {
             mPendingInputBuffer = null;
             return 0;
         }
-        int len2 = 0;
+        int len2;
         try {
             len2 = mASPlayer.writeData(mPendingInputBuffer,0);
             //Log.d(TAG,"injectData, ASPlayer.writeData returns: "+len2);
