@@ -131,7 +131,7 @@ public class JDvrFile {
             if (mLock == null) {
                 throw new RuntimeException("Cannot acquire lock for playback");
             }
-            if (!load()) {
+            if (!(load() || load() || load())) {
                 Log.d(TAG,"unlock(100-200) for playback");
                 mLock.release();
                 throw new RuntimeException("Fails to load recording files");
