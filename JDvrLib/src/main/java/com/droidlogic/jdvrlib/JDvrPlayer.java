@@ -523,8 +523,9 @@ public class JDvrPlayer {
             if (mSession.mControllerToPause) {
                 Log.d(TAG,"calling ASPlayer.setTrickMode(BY_SEEK) at "+JDvrCommon.getCallerInfo(3));
                 mASPlayer.setTrickMode(VideoTrickMode.TRICK_MODE_BY_SEEK);
-                Log.d(TAG,"calling ASPlayer.startFast("+mSession.mTargetSpeed+") at "+JDvrCommon.getCallerInfo(3));
-                mASPlayer.startFast((float)mSession.mTargetSpeed);
+                // Here speed 1.0f is given to ensure AudioFirstFrameEvent reception.
+                Log.d(TAG,"calling ASPlayer.startFast(1.0) at "+JDvrCommon.getCallerInfo(3));
+                mASPlayer.startFast(1.0f);
                 mSession.mTrickModeBySeekIsOn = true;
             }
             mSession.mIsStarting = true;
