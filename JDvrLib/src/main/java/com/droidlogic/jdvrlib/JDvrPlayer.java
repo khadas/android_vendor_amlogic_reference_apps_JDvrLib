@@ -183,6 +183,9 @@ public class JDvrPlayer {
                 e.printStackTrace();
                 return;
             }
+            if (mSession.mState == JDvrPlaybackSession.INITIAL_STATE || mJDvrFile == null) {
+                return;
+            }
             final String pathPrefix = mJDvrFile.getPathPrefix();
             // Segment adding based on actual segment files
             final int idNew = mJDvrFile.getLastSegmentId()+1;
@@ -266,6 +269,9 @@ public class JDvrPlayer {
     private final Runnable mPtsRunnable = new Runnable() {
         @Override
         public void run() {
+            if (mSession.mState == JDvrPlaybackSession.INITIAL_STATE || mJDvrFile == null) {
+                return;
+            }
             //Log.d(TAG,"pts:"+mLastPts);
             mJDvrFile.updateLastPts(mLastPts);
         }
