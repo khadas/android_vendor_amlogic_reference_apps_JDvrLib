@@ -22,6 +22,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Locale;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import com.droidlogic.jdvrlib.JDvrCommon.*;
 import com.droidlogic.jdvrlib.JDvrRecorder.JDvrStreamInfo;
@@ -735,30 +736,31 @@ public class JDvrFile {
      */
     public long getPlayingTime() {
         if (mType < 2) { throw new RuntimeException("Cannot do this under Recording situation"); }
-        int segmentId = timeOffsetToSegmentId(mPlayingTime);
-        if (segmentId == -1) {
-            Log.e(TAG,"Cannot get segment id for time "+mPlayingTime);
+        final int segIdx = segmentsIndexOf(mPlayingTime);
+        if (segIdx == -1) {
+            Log.e(TAG,"Cannot get segment for time "+mPlayingTime);
             return -1L;
         }
-        final long segmentTimeOffset = mPlayingTime - mSegments.get(segmentId).getStartTime();
+        final int nextIdx = segIdx+1;
+        final JDvrSegment currSeg = mSegments.get(segIdx);
+        final long segmentTimeOffset = mPlayingTime - currSeg.getStartTime();
         // Search pts in current index file.
-        Long newSegmentPlayingTime = mSegments.get(segmentId).findPtsFrom(mLastPts,segmentTimeOffset);
+        Long newSegmentPlayingTime = currSeg.findPtsFrom(mLastPts,segmentTimeOffset);
         if (newSegmentPlayingTime != null) {
-            mPlayingTime = mSegments.get(segmentId).getStartTime() + newSegmentPlayingTime;
-            //Log.d(TAG,"Finding PTS1 "+mLastPts+" from seg#"+segmentId+"+off:"+segmentTimeOffset+"ms returns segmentPlayingTime:"+newSegmentPlayingTime+"ms PlayingTime:"+mPlayingTime+"ms");
-        } else {
-            if (mSegments.get(mSegments.size()-1).id() > segmentId) {
-                // Continue to search pts in next index file.
-                newSegmentPlayingTime = mSegments.get(segmentId+1).findPtsFrom(mLastPts,0L);
-                if (newSegmentPlayingTime != null) {
-                    mPlayingTime = mSegments.get(segmentId+1).getStartTime() + newSegmentPlayingTime;
-                    //Log.d(TAG,"Finding PTS2 "+mLastPts+" from seg#"+segmentId+"+off:"+segmentTimeOffset+"ms returns segmentPlayingTime:"+newSegmentPlayingTime+"ms PlayingTime:"+mPlayingTime+"ms");
-                }
+            mPlayingTime = currSeg.getStartTime() + newSegmentPlayingTime;
+            //Log.d(TAG,"Finding PTS1 "+mLastPts+" from seg#"+currSeg.id()+"+off:"+segmentTimeOffset+"ms returns segmentPlayingTime:"+newSegmentPlayingTime+"ms PlayingTime:"+mPlayingTime+"ms");
+        } else if (nextIdx<mSegments.size()) {
+            final JDvrSegment nextSeg = mSegments.get(nextIdx);
+            // Continue to search pts in next index file.
+            newSegmentPlayingTime = nextSeg.findPtsFrom(mLastPts,0L);
+            if (newSegmentPlayingTime != null) {
+                mPlayingTime = nextSeg.getStartTime() + newSegmentPlayingTime;
+                //Log.d(TAG,"Finding PTS2 "+mLastPts+" from seg#"+nextSeg.id()+"+off:"+segmentTimeOffset+"ms returns segmentPlayingTime:"+newSegmentPlayingTime+"ms PlayingTime:"+mPlayingTime+"ms");
             }
         }
         if (newSegmentPlayingTime == null) {
             Log.w(TAG,"Cannot find out matching index for pts "+mLastPts+" in seg#"
-                    +segmentId+" starting from offset:"+segmentTimeOffset+"ms (and seg#"+(segmentId+1)+" if any)");
+                    +currSeg.id()+" starting from offset:"+segmentTimeOffset+"ms (and seg#"+(currSeg.id()+1)+" if any)");
         }
         return (newSegmentPlayingTime != null) ? mPlayingTime : -1L;
     }
@@ -899,12 +901,11 @@ public class JDvrFile {
             throw new RuntimeException(e);
         }
     }
-    private int timeOffsetToSegmentId(long timeOffset) {
+    private int segmentsIndexOf(long timeOffset) {
         if (timeOffset < 0) {
             return -1;
         }
-        JDvrSegment seg = mSegments.stream().filter(s -> (s.getStartTime() + s.duration()) >= timeOffset).findFirst().orElse(null);
-        return (seg != null) ? seg.id() : -1;
+        return IntStream.range(0,mSegments.size()).filter(i->mSegments.get(i).getStartTime()+mSegments.get(i).duration()>=timeOffset).findFirst().orElse(-1);
     }
     private static boolean repairFiles(String pathPrefix) {
         final String dirName = pathPrefix.substring(0,pathPrefix.lastIndexOf('/'));
