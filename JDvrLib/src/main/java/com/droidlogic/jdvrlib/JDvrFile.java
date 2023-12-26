@@ -831,6 +831,17 @@ public class JDvrFile {
     public void updateLastPts(long pts) {
         mLastPts = pts;
     }
+    public ArrayList<JDvrStreamInfo> getStreamsInfoAt(long time) {
+        if (mType < 2) { throw new RuntimeException("Cannot do this under Recording situation"); }
+        final int segIdx = segmentsIndexOf(time);
+        if (segIdx == -1) {
+            Log.e(TAG,"Cannot get segment for time "+time);
+            return null;
+        }
+        final JDvrSegment currSeg = mSegments.get(segIdx);
+        final long segmentTimeOffset = time - currSeg.getStartTime();
+        return currSeg.findMatchingStreamsInfo(segmentTimeOffset);
+    }
 
     // Private functions
     private static int removeAssociatedFiles(String pathPrefix) {

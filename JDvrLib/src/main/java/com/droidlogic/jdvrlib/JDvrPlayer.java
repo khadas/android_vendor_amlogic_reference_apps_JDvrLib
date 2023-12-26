@@ -1,5 +1,7 @@
 package com.droidlogic.jdvrlib;
 
+import static com.droidlogic.jdvrlib.JDvrCommon.JDvrStreamType.STREAM_TYPE_OTHER;
+
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Message;
@@ -17,6 +19,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.concurrent.Executor;
+import java.util.stream.IntStream;
 
 public class JDvrPlayer {
     private static class JDvrPlaybackSession {
@@ -844,7 +847,17 @@ public class JDvrPlayer {
             if (len == 0 || len == -1) {
                 return len;
             }
-            mPendingInputBuffer = new InputBuffer(buffer,0,len);
+            if (!mSession.mVideoDecoderInitReceived) {
+                ArrayList<JDvrRecorder.JDvrStreamInfo> streams = new ArrayList<>(mJDvrFile.getStreamsInfoAt(0));
+                streams.removeIf(s->s.type==STREAM_TYPE_OTHER);
+                IntStream.range(0,len/188).filter(i -> {
+                    final boolean cond1 = (buffer[i*188] == 0x47);
+                    final int pid = ((buffer[i*188+1]&0x1F)<<8)+buffer[i*188+2];
+                    final boolean cond2 = streams.stream().anyMatch(s -> s.pid == pid);
+                    return cond1 && cond2;
+                }).forEach(i -> { buffer[i*188+1]=(byte)0x1f; buffer[i*188+2]=(byte)0xff;});
+            }
+            mPendingInputBuffer = new InputBuffer(buffer, 0, len);
         }
         if (mPendingInputBuffer.mBufferSize <= 0) {
             mPendingInputBuffer = null;

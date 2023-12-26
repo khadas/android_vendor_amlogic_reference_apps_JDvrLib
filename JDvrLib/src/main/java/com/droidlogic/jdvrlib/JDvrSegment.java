@@ -480,6 +480,13 @@ class JDvrSegment {
     public void setLastSegment(boolean isOrNot) {
         this.mLastSegment = isOrNot;
     }
+    public ArrayList<JDvrStreamInfo> findMatchingStreamsInfo(long time) {
+        if (mMode == 0) { throw new RuntimeException("Cannot do this under Recording situation"); }
+        if (mLoadLevel < 3) {
+            load(3);
+        }
+        return mTimeStreamIndexArray.get(0).pids;
+    }
     // Private functions
     private JDvrSegmentTimeOffsetIndex parseTimeOffsetIndex(final String line) {
         try {
