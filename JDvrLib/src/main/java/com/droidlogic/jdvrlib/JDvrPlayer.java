@@ -574,10 +574,7 @@ public class JDvrPlayer {
                 mSession.mStartingPhaseSeek2Done = true;
                 mSession.mTargetSeekPos = null;
             }
-            // Clear outdated PTS events cached in the queue prior to seek.
-            if (mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
-                mPlaybackHandler.removeCallbacks(mPtsRunnable);
-            }
+            mPlaybackHandler.removeCallbacks(mPtsRunnable);
         }
         if (cond7) {
             mSession.mIsStopping = true;
@@ -648,10 +645,7 @@ public class JDvrPlayer {
             mJDvrFile.seek(mSession.mTargetSeekPos*1000);
             mPendingInputBuffer = null;
             mSession.mTargetSeekPos = null;
-            // Clear outdated PTS events cached in the queue prior to seek.
-            if (mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
-                mPlaybackHandler.removeCallbacks(mPtsRunnable);
-            }
+            mPlaybackHandler.removeCallbacks(mPtsRunnable);
         }
         if (cond6) {
             speedTransition();
@@ -700,10 +694,7 @@ public class JDvrPlayer {
             mLastTrickModeTimestamp = curTs;
             mLastTrickModeTimeOffset = mSession.mTargetSeekPos*1000;
             mSession.mTargetSeekPos = null;
-            // Clear outdated PTS events cached in the queue prior to seek.
-            if (mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
-                mPlaybackHandler.removeCallbacks(mPtsRunnable);
-            }
+            mPlaybackHandler.removeCallbacks(mPtsRunnable);
         }
         if (cond5) {
             speedTransition();
@@ -731,10 +722,7 @@ public class JDvrPlayer {
             mASPlayer.flush();
             mJDvrFile.seek((int)newOffset);
             mPendingInputBuffer = null;
-            // Clear outdated PTS events cached in the queue prior to seek.
-            if (mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
-                mPlaybackHandler.removeCallbacks(mPtsRunnable);
-            }
+            mPlaybackHandler.removeCallbacks(mPtsRunnable);
             if (!mSession.mTrickModeBySeekIsOn) {
                 Log.d(TAG, "calling ASPlayer.setTrickMode(BY_SEEK) at " + JDvrCommon.getCallerInfo(3));
                 mASPlayer.setTrickMode(VideoTrickMode.TRICK_MODE_BY_SEEK);
@@ -800,11 +788,8 @@ public class JDvrPlayer {
             mSession.mFirstVideoFrameReceived = false;
             mSession.mFirstAudioFrameReceived = false;
             mSession.mTargetSeekPos = null;
-            // Clear outdated PTS events cached in the queue prior to seek.
-            if (mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
-                mPlaybackHandler.removeCallbacks(mPtsRunnable);
-            }
-        } else if (cond6 && cond8) {
+            mPlaybackHandler.removeCallbacks(mPtsRunnable);
+        } else if ((cond6 || cond9) && cond8) {
             Log.d(TAG,"calling ASPlayer.pauseVideoDecoding at "+JDvrCommon.getCallerInfo(3));
             mASPlayer.pauseVideoDecoding();
             mASPlayer.pauseAudioDecoding();

@@ -43,8 +43,8 @@ public:
     bool isTimeshift();
     long duration();
     static long duration2(jstring path_prefix);
-    long size();
-    static long size2(jstring path_prefix);
+    int64_t size();
+    static int64_t size2(jstring path_prefix);
     long getPlayingTime();
     long getStartTime();
     int getSegmentIdBeingRead();

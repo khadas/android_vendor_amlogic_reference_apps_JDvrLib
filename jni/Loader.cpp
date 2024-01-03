@@ -436,18 +436,18 @@ long JDvrFile::duration2(jstring path_prefix)
     return (long)result;
 }
 
-long JDvrFile::size()
+int64_t JDvrFile::size()
 {
     if (mJavaJDvrFile == NULL) {
         return 0L;
     }
     JNIEnv *env = Loader::getOrAttachJNIEnvironment();
     jlong result = env->CallLongMethod(mJavaJDvrFile, gJDvrFileCtx.sizeMID);
-    //ALOGD("%s, returns %d",__func__,(long)result);
-    return (long)result;
+    //ALOGD("%s, returns %lld",__func__,result);
+    return (int64_t)result;
 }
 
-long JDvrFile::size2(jstring path_prefix)
+int64_t JDvrFile::size2(jstring path_prefix)
 {
     JNIEnv* env = Loader::getOrAttachJNIEnvironment();
     if (env == nullptr) {
@@ -455,7 +455,7 @@ long JDvrFile::size2(jstring path_prefix)
         return false;
     }
     jlong result = env->CallStaticLongMethod(gJDvrFileCls,gJDvrFileCtx.size2MID,path_prefix);
-    return (long)result;
+    return (int64_t)result;
 }
 
 long JDvrFile::getPlayingTime()
