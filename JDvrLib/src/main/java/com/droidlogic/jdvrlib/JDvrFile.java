@@ -132,6 +132,10 @@ public class JDvrFile {
             if (mLock == null) {
                 throw new RuntimeException("Cannot acquire lock for playback");
             }
+            File statFile = new File(mStatPath);
+            if (!statFile.exists() || statFile.length() == 0) {
+                repairFiles(path_prefix);
+            }
             if (!(load() || load() || load())) {
                 Log.d(TAG,"unlock(100-200) for playback");
                 mLock.release();
@@ -442,10 +446,7 @@ public class JDvrFile {
         long ret = 0L;
         final String statPath = pathPrefix + ".stat";
         File statFile = new File(statPath);
-        if (!statFile.exists()) {
-            return 0L;
-        }
-        if (statFile.length() == 0) {
+        if (!statFile.exists() || statFile.length() == 0) {
             repairFiles(pathPrefix);
         }
         try {
@@ -919,6 +920,7 @@ public class JDvrFile {
         return IntStream.range(0,mSegments.size()).filter(i->mSegments.get(i).getStartTime()+mSegments.get(i).duration()>=timeOffset).findFirst().orElse(-1);
     }
     private static boolean repairFiles(String pathPrefix) {
+        Log.d(TAG,"Repairing "+pathPrefix);
         final String dirName = pathPrefix.substring(0,pathPrefix.lastIndexOf('/'));
         File dir = new File(dirName);
         if (!dir.exists()) {
@@ -961,6 +963,7 @@ public class JDvrFile {
             Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             return false;
         }
+        Log.d(TAG,"Repaired "+pathPrefix);
         return true;
     }
 }
