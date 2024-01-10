@@ -99,8 +99,8 @@ class JDvrSegment {
         return mSegmentID;
     }
     public int getVideoPid() {
-        if (mLoadLevel < 2) {
-            load(2);
+        if (mLoadLevel < 3) {
+            load(3);
         }
         if (mTimeStreamIndexArray.size() == 0) {
             return 0x1fff;
@@ -111,8 +111,8 @@ class JDvrSegment {
         return (info!=null) ? info.pid : 0x1fff;
     }
     public String getVideoMIMEType() {
-        if (mLoadLevel < 2) {
-            load(2);
+        if (mLoadLevel < 3) {
+            load(3);
         }
         if (mTimeStreamIndexArray.size() == 0) {
             return null;
@@ -132,8 +132,8 @@ class JDvrSegment {
         return null;
     }
     public int getVideoFormat() {
-        if (mLoadLevel < 2) {
-            load(2);
+        if (mLoadLevel < 3) {
+            load(3);
         }
         if (mTimeStreamIndexArray.size() == 0) {
             return JDvrVideoFormat.VIDEO_FORMAT_UNDEFINED;
@@ -153,8 +153,8 @@ class JDvrSegment {
         return JDvrVideoFormat.VIDEO_FORMAT_UNDEFINED;
     }
     public int getAudioPID() {
-        if (mLoadLevel < 2) {
-            load(2);
+        if (mLoadLevel < 3) {
+            load(3);
         }
         if (mTimeStreamIndexArray.size() == 0) {
             return 0x1fff;
@@ -165,8 +165,8 @@ class JDvrSegment {
         return (info!=null) ? info.pid : 0x1fff;
     }
     public String getAudioMIMEType() {
-        if (mLoadLevel < 2) {
-            load(2);
+        if (mLoadLevel < 3) {
+            load(3);
         }
         if (mTimeStreamIndexArray.size() == 0) {
             return null;
@@ -180,8 +180,8 @@ class JDvrSegment {
         return JDvrCommon.JDvrAudioFormatToMimeType(info.format);
     }
     public int getAudioFormat() {
-        if (mLoadLevel < 2) {
-            load(2);
+        if (mLoadLevel < 3) {
+            load(3);
         }
         if (mTimeStreamIndexArray.size() == 0) {
             return JDvrAudioFormat.AUDIO_FORMAT_UNDEFINED;
@@ -204,40 +204,34 @@ class JDvrSegment {
     }
     private int load(int level) {
         //final long ts1 = SystemClock.elapsedRealtime();
+        if (level <= 0 || level > 4) {
+            return 0;
+        }
         try {
-            if (mTsFile == null) {
-                mTsFile = new File(mTsPath);
-            }
-            if (mTsStream == null) {
-                if (mMode == 1) {
-                    mTsStream = new RandomAccessFile(mTsFile, "r");
-                } else {
-                    mTsStream = new RandomAccessFile(mTsFile, "rws");
-                }
-            }
-            if (mIndexFile == null) {
-                mIndexFile = new File(mIndexPath);
-            }
-            if (mIndexStream == null) {
-                if (mMode == 1) {
-                    mIndexStream = new RandomAccessFile(mIndexFile, "r");
-                } else {
-                    mIndexStream = new RandomAccessFile(mIndexFile, "rws");
-                }
-            }
-            if (!mTsFile.exists() || !mIndexFile.exists()) {
-                Log.w(TAG,"Trying to load segment "+mPathPrefix+", but files don't exist");
-                return 0;
-            }
-            if (level == 1 && mLoadLevel <= 1) {
-                if (mDuration > 0) {
-                    mLoadLevel = 1;
-                } else if (mDuration == 0 && mStartTime == 0) {
-                    level = 2;
-                }
-            }
             Path path = Paths.get(mIndexPath);
-            if (level == 2) {
+            if (level == 1 && mLoadLevel < 1) {
+                mLoadLevel = (mDuration > 0) ? 1 : 0;
+            }
+            if (level > 1 && mLoadLevel < 2) {
+                if (mTsFile == null) {
+                    mTsFile = new File(mTsPath);
+                }
+                if (mTsStream == null) {
+                    mTsStream = new RandomAccessFile(mTsFile, ((mMode == 0) ? "rws" : "r"));
+                }
+                if (mIndexFile == null) {
+                    mIndexFile = new File(mIndexPath);
+                }
+                if (mIndexStream == null) {
+                    mIndexStream = new RandomAccessFile(mIndexFile, ((mMode == 0) ? "rws" : "r"));
+                }
+                if (!mTsFile.exists() || !mIndexFile.exists()) {
+                    Log.w(TAG, "Trying to load segment " + mPathPrefix + ", but files don't exist");
+                } else {
+                    mLoadLevel = 2;
+                }
+            }
+            if (level == 3) {
                 final String[] lines = Files.readAllLines(path).toArray(new String[0]);
                 if (lines.length > 0) {
                     boolean cond1 = false;
@@ -263,11 +257,11 @@ class JDvrSegment {
                             cond2 = true;
                         }
                     }
-                    if (cond1 && cond2 && mLoadLevel < 2) {
-                        mLoadLevel = 2;
+                    if (cond1 && cond2) {
+                        mLoadLevel = 3;
                     }
                 }
-            } else if (level == 3 && mLoadLevel <= 3) {
+            } else if (level == 4) {
                 final String[] lines = Files.readAllLines(path).toArray(new String[0]);
                 if (lines.length > 0) {
                     Arrays.stream(lines).skip(mProcessedLines).filter(s -> s.matches(regex1))
@@ -287,8 +281,8 @@ class JDvrSegment {
                     if (idx2 != null) {
                         mStartTime = idx2.timeOffsetFromOrigin - idx2.time;
                     }
-                    if (idx1 != null && idx2 != null && mLoadLevel < 3) {
-                        mLoadLevel = 3;
+                    if (idx1 != null && idx2 != null) {
+                        mLoadLevel = 4;
                     }
                 }
                 mProcessedLines = lines.length;
@@ -304,6 +298,9 @@ class JDvrSegment {
     }
     public int write(byte[] buffer, int offset, int size) {
         if (mMode == 1) { throw new RuntimeException("Cannot do this under Playback situation"); }
+        if (mLoadLevel < 2) {
+            load(2);
+        }
         try {
             mTsStream.seek(mTsStream.length());
             mTsStream.write(buffer, offset, size);
@@ -320,6 +317,9 @@ class JDvrSegment {
     }
     public int writeIndex(byte[] buffer, int size) {
         if (mMode == 1) { throw new RuntimeException("Cannot do this under Playback situation"); }
+        if (mLoadLevel < 2) {
+            load(2);
+        }
         JsonReader reader = new JsonReader(new StringReader(new String(buffer)));
         long timeOffset = -1;
         long timeOffsetFromOrigin = -1;
@@ -369,6 +369,9 @@ class JDvrSegment {
     }
     public int read(byte[] buffer, int offset, int size) throws IOException {
         if (mMode == 0) { throw new RuntimeException("Cannot do this under Recording situation"); }
+        if (mLoadLevel < 2) {
+            load(2);
+        }
         int ret;
         try {
             mTsStream.seek(mLastReadOffset);
@@ -383,8 +386,11 @@ class JDvrSegment {
     }
     public void seek(long pos) {
         if (mMode == 0) { throw new RuntimeException("Cannot do this under Recording situation"); }
-        if (pos < 0) {
+        if (pos == mLastReadOffset || pos < 0) {
             return;
+        }
+        if (mLoadLevel < 2) {
+            load(2);
         }
         try {
             pos = Math.min(pos,mTsStream.length());
@@ -396,23 +402,32 @@ class JDvrSegment {
         }
     }
     public void close() {
+        if (mLoadLevel < 2) {
+            return;
+        }
         try {
             mTsStream.close();
             mTsStream = null;
             mIndexStream.close();
             mIndexStream = null;
-        } catch (IOException e) {
+        } catch (IOException | NullPointerException e) {
             Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
             e.printStackTrace();
         }
     }
     public void delete() {
         Log.i(TAG,"Deleting segment: " + mTsPath);
+        if (mLoadLevel < 2) {
+            load(2);
+        }
         mTsFile.delete();
         mIndexFile.delete();
         mTimeOffsetIndexArray.clear();
     }
     public int size() {
+        if (mLoadLevel < 2) {
+            load(2);
+        }
         return (int)mTsFile.length();
     }
     static public void setMaxSegmentSize(int size) {
@@ -423,12 +438,13 @@ class JDvrSegment {
     }
     public long duration() {
         if (mMode == 1 && mLastSegment) {
-            load(2);
+            load(3);
         }
         return mDuration;
     }
     public void setDuration(long duration) {
         mDuration = duration;
+        load(1);
     }
     public long getStartTime() {
         if (mMode == 2) {
@@ -482,8 +498,8 @@ class JDvrSegment {
     }
     public ArrayList<JDvrStreamInfo> findMatchingStreamsInfo(long time) {
         if (mMode == 0) { throw new RuntimeException("Cannot do this under Recording situation"); }
-        if (mLoadLevel < 3) {
-            load(3);
+        if (mLoadLevel < 4) {
+            load(4);
         }
         return mTimeStreamIndexArray.get(0).pids;
     }
@@ -590,7 +606,7 @@ class JDvrSegment {
     }
     Long findPtsFrom(long pts, long timeOffsetFrom) {
         if (mMode == 0) { throw new RuntimeException("Cannot do this under Recording situation"); }
-        load(3);
+        load(4);
         final int len = mTimeOffsetIndexArray.size();
         final Integer i = findMatchingIndexByTimeOffset(timeOffsetFrom);
         if (i == null) {
@@ -620,10 +636,10 @@ class JDvrSegment {
         final int len = mTimeOffsetIndexArray.size();
         final boolean cond1 = (len == 0);
         final boolean cond2 = (!cond1 && mTimeOffsetIndexArray.get(len - 1).offset < offset);
-        final boolean cond3 = (mLoadLevel < 3);
-        final boolean cond4 = (mLoadLevel == 3);
+        final boolean cond3 = (mLoadLevel < 4);
+        final boolean cond4 = (mLoadLevel == 4);
         if (cond1 || cond3 || (cond2 && cond4)) {
-            load(3);
+            load(4);
         }
         final JDvrSegmentTimeOffsetIndex ref = new JDvrSegmentTimeOffsetIndex(0L,offset,0L);
         int i = Collections.binarySearch(mTimeOffsetIndexArray,ref,mIndexOffsetCmp);
@@ -642,10 +658,10 @@ class JDvrSegment {
         int len = mTimeOffsetIndexArray.size();
         final boolean cond1 = (len == 0);
         final boolean cond2 = (!cond1 && mTimeOffsetIndexArray.get(len - 1).time < time);
-        final boolean cond3 = (mLoadLevel < 3);
-        final boolean cond4 = (mLoadLevel == 3);
+        final boolean cond3 = (mLoadLevel < 4);
+        final boolean cond4 = (mLoadLevel == 4);
         if (cond1 || cond3 || (cond2 && cond4)) {
-            load(3);
+            load(4);
             len = mTimeOffsetIndexArray.size();
         }
         final JDvrSegmentTimeOffsetIndex ref = new JDvrSegmentTimeOffsetIndex(time,0L,0L);
