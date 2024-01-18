@@ -5,7 +5,6 @@ import android.util.JsonReader;
 import android.util.Log;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.io.StringReader;
@@ -40,9 +39,9 @@ public class JDvrFile {
     final private String mLockPath;
     FileChannel mLockChannel;
     FileLock mLock;
-    private long mTimestampOfLastIndexWrite = 0;
+    private long mTimestampOfLastWriteIndex = 0;
+    private long mPtsOfLastWriteIndex = 0;
     private long mTimestampOfOrigin = 0;
-    private long mTotalObsoletePausedTime = 0;   // in ms
     final public static int mMinIndexInterval = 300;  // in ms
     final public static int mPtsMargin = mMinIndexInterval * 90 * 2;  // in 90KHz
     private ArrayList<JDvrStreamInfo> mCurrentRecordingStreams = new ArrayList<>();
@@ -270,14 +269,20 @@ public class JDvrFile {
      * @return new segment id
      */
     public int addSegment() {
+        JDvrSegment lastSegment = null;
+        final int len = mSegments.size();
+        if (len>0) {
+            lastSegment = mSegments.get(len-1);
+        }
         final int newID = getLastSegmentId() + 1;
         JDvrSegment segment = new JDvrSegment(mPathPrefix, newID, (mType < 2) ? 0 : 1, 0);
         segment.setLastSegment(true);
-        mSegments.add(segment);
-        if (mSegments.size()>0) {
-            mSegments.get(mSegments.size()-1).setLastSegment(false);
+        if (lastSegment != null) {
+            lastSegment.setLastSegment(false);
+            segment.setStartTime(lastSegment.getStartTime()+lastSegment.duration());
         }
-        Log.i(TAG,"addSegment, id:"+segment.id());
+        mSegments.add(segment);
+        Log.i(TAG,"addSegment #"+segment.id()+" with initial startTime:"+segment.getStartTime());
         return newID;
     }
     /**
@@ -583,56 +588,54 @@ public class JDvrFile {
     public int write (byte[] buffer, int offset, int size, long pts) throws IOException {
         if (mType == 2) { throw new RuntimeException("Cannot do this under Playback situation"); }
         final long curTs = SystemClock.elapsedRealtime();
-        JDvrSegment lastSegment = null;
+        final long diff1 = (pts - mPtsOfLastWriteIndex)/90;     // in ms
+        final long diff2 = curTs - mTimestampOfLastWriteIndex;  // in ms
+        final long timeElapsed = ((diff1>0 && diff1<3000) || (diff2>3000 && diff1>=0) ? diff1 : diff2);
+
         // 1. Add a segment if necessary
         {
+            JDvrSegment lastSegment = null;
             final boolean cond1 = (mSegments.size() == 0);
             boolean cond2 = false;
-            boolean cond3 = false;
             if (!cond1) {
                 lastSegment = getLastSegment();
                 cond2 = (lastSegment.size() + size > JDvrSegment.getMaxSegmentSize());
-                cond3 = (lastSegment.id() <= mLastLoadedSegmentId); // in case of appending recording
             }
-            if (cond1 || cond2 || cond3) {
+            if (cond1 || cond2) {
                 if (lastSegment != null) {
                     // write last index
-                    final long timeElapsed = cond1 ? 0 : curTs - mTimestampOfLastIndexWrite;
                     final String line = String.format(Locale.US,"{\"time\":%d, \"offset\":%d, \"pts\":%d}\n",
                             lastSegment.duration()+timeElapsed,lastSegment.size(),pts);
                     lastSegment.writeIndex(line.getBytes(), line.length());
+                    mTimestampOfLastWriteIndex = curTs;
+                    mPtsOfLastWriteIndex = pts;
                     updateStatFile();
                     updateListFile();
                 }
                 addSegment();
-                mTimestampOfLastIndexWrite = curTs;
                 if (cond1) {
                     mTimestampOfOrigin = curTs;
                     Log.d(TAG,"Origin timestamp is " + mTimestampOfOrigin);
                 }
             }
         }
-        JDvrSegment currSegment = getLastSegment();
         // 2. Remove a segment if necessary
         {
             final boolean cond1 = (size()+size > mLimitSize);
-            final boolean cond2 = ((duration()+curTs-mTimestampOfLastIndexWrite)/1000 >= mLimitSeconds);
+            final boolean cond2 = ((duration()+curTs-mTimestampOfLastWriteIndex)/1000 >= mLimitSeconds);
             final boolean cond3 = isTimeshift();
             final boolean cond4 = (mSegments.size()>1);
             if ((cond1 || cond2) && cond3 && cond4) {
-                mTotalObsoletePausedTime += mSegments.get(0).getPausedTime();
                 removeSegment(getFirstSegmentId());
             }
         }
+        JDvrSegment currSegment = getLastSegment();
         // 3. Update index file if necessary
         final long newSize = size() + size;
         {
             final boolean cond1 = (currSegment.size() == 0);
-            final long timeElapsed = cond1 ? 0 : curTs - mTimestampOfLastIndexWrite;
-            final long totalTimeSpent = curTs - mTimestampOfOrigin;
-            final long totalTimePaused = mTotalObsoletePausedTime + mSegments.stream().mapToLong(JDvrSegment::getPausedTime).sum();
-            final long timeOffsetFromOrigin = totalTimeSpent - totalTimePaused;
-            final long timeOffsetOfSegment = Math.min(currSegment.duration()+((timeElapsed<2*mMinIndexInterval)?timeElapsed:mMinIndexInterval),timeOffsetFromOrigin);
+            final long timeOffsetOfSegment = cond1 ? 0 : currSegment.duration()+timeElapsed;
+            final long timeOffsetFromOrigin = currSegment.getStartTime()+timeOffsetOfSegment;
             final boolean cond2 = mPidHasChanged;
             if (cond1 || cond2) {
                 final String streamStr = mCurrentRecordingStreams.stream().map(Object::toString).collect(Collectors.joining(","));
@@ -643,12 +646,13 @@ public class JDvrFile {
                 mPidHasChanged = false;
             }
             final boolean cond3 = (newSize <= mLimitSize);
-            final boolean cond4 = (curTs - mTimestampOfLastIndexWrite >= mMinIndexInterval);
+            final boolean cond4 = (curTs - mTimestampOfLastWriteIndex >= mMinIndexInterval);
             if (cond1 || (cond3 && cond4)) {
                 final String line = String.format(Locale.US,"{\"time\":%d, \"offset\":%d, \"pts\":%d}\n",
                         timeOffsetOfSegment,currSegment.size(),pts);
                 currSegment.writeIndex(line.getBytes(), line.length());
-                mTimestampOfLastIndexWrite = curTs;
+                mTimestampOfLastWriteIndex = curTs;
+                mPtsOfLastWriteIndex = pts;
                 updateStatFile();
                 updateListFile();
             }
@@ -713,6 +717,7 @@ public class JDvrFile {
         }
         JDvrSegment segment = mSegments.get(i);
         final long timeOffset = ms - segment.getStartTime();
+        Log.d(TAG,"timeOffset("+timeOffset+") = ms("+ms+") - seg#"+segment.id()+".startTime("+segment.getStartTime()+")");
         if (timeOffset < 0) {
             Log.w(TAG,"seek: timeOffset "+timeOffset+" is invalid");
             return false;

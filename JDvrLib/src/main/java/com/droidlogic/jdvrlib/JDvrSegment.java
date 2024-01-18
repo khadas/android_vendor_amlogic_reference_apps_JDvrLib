@@ -458,6 +458,9 @@ class JDvrSegment {
         if (mLoadLevel < 1) {
             load(1);
         }
+        if (mMode == 1 && mStartTime == 0) {
+            load(3);
+        }
         return mStartTime;
     }
     public void setStartTime(long time) {
