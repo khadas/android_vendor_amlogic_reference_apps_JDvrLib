@@ -581,7 +581,7 @@ public class JDvrFile {
     public int write (byte[] buffer, int offset, int size, long pts) throws IOException {
         if (mType == 2) { throw new RuntimeException("Cannot do this under Playback situation"); }
         final long curTs = SystemClock.elapsedRealtime();
-        JDvrSegment lastSegment;
+        JDvrSegment lastSegment = null;
         // 1. Add a segment if necessary
         {
             final boolean cond1 = (mSegments.size() == 0);
@@ -593,6 +593,15 @@ public class JDvrFile {
                 cond3 = (lastSegment.id() <= mLastLoadedSegmentId); // in case of appending recording
             }
             if (cond1 || cond2 || cond3) {
+                if (lastSegment != null) {
+                    // write last index
+                    final long timeElapsed = cond1 ? 0 : curTs - mTimestampOfLastIndexWrite;
+                    final String line = String.format(Locale.US,"{\"time\":%d, \"offset\":%d, \"pts\":%d}\n",
+                            lastSegment.duration()+timeElapsed,lastSegment.size(),pts);
+                    lastSegment.writeIndex(line.getBytes(), line.length());
+                    updateStatFile();
+                    updateListFile();
+                }
                 addSegment();
                 mTimestampOfLastIndexWrite = curTs;
                 if (cond1) {

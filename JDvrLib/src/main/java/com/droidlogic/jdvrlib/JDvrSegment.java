@@ -478,15 +478,21 @@ class JDvrSegment {
     public int getLoadLevel() {
         return mLoadLevel;
     }
-    public Long getOffsetOf(final long time) {
+    public long getOffsetOf(final long time) {
         if (mMode == 0) { throw new RuntimeException("Cannot do this under Recording situation"); }
         Integer i = findMatchingIndexByTimeOffset(time);
-        return (i != null) ? mTimeOffsetIndexArray.get(i).offset : null;
+        if (i == null) {
+            i = mTimeOffsetIndexArray.size()-1;
+        }
+        return mTimeOffsetIndexArray.get(i).offset;
     }
-    public Long getPtsOf(final long time) {
+    public long getPtsOf(final long time) {
         if (mMode == 0) { throw new RuntimeException("Cannot do this under Recording situation"); }
         Integer i = findMatchingIndexByTimeOffset(time);
-        return (i != null) ? mTimeOffsetIndexArray.get(i).pts : null;
+        if (i == null) {
+            i = mTimeOffsetIndexArray.size()-1;
+        }
+        return mTimeOffsetIndexArray.get(i).pts;
     }
     public Long getTimeOffsetOf(final long offset) {
         if (mMode == 0) { throw new RuntimeException("Cannot do this under Recording situation"); }

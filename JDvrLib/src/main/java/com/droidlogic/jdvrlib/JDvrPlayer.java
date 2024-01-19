@@ -698,11 +698,6 @@ public class JDvrPlayer {
         }
         if (cond5) {
             speedTransition();
-            Log.d(TAG,"calling ASPlayer.setTrickMode(SMOOTH) at "+JDvrCommon.getCallerInfo(3));
-            mASPlayer.setTrickMode(VideoTrickMode.TRICK_MODE_SMOOTH);
-            mSession.mTrickModeBySeekIsOn = false;
-            Log.d(TAG,"calling ASPlayer.stopFast at "+JDvrCommon.getCallerInfo(3));
-            mASPlayer.stopFast();
             mLastTrickModeTimestamp = 0;
             mLastTrickModeTimeOffset = 0;
         }
