@@ -586,7 +586,6 @@ public class JDvrPlayer {
     }
     private void handlingSmoothPlayingState() {
         final long curTs = SystemClock.elapsedRealtime();
-        injectData();
         final boolean cond1 = (mEndTime != 0 && mEndTime-mPlayingTime<300);
         final boolean cond2 = mSession.mControllerToExit;
         final boolean cond3 = mSession.mCurrentSpeed != mSession.mTargetSpeed;
@@ -611,7 +610,23 @@ public class JDvrPlayer {
                 mASPlayer.resumeVideoDecoding();
                 mASPlayer.resumeAudioDecoding();
             }
-            if (cond7) {
+            if (isSkippingPlaySpeed(mSession.mCurrentSpeed)) {
+                // To clear dirty data in BY_SEEK to SMOOTH transition.
+                mASPlayer.flush();
+                mASPlayer.flushDvr();
+                mPendingInputBuffer = null;
+            }
+            if (Math.abs(mSession.mTargetSpeed - 1) <= 0.001) {
+                Log.d(TAG,"calling ASPlayer.setTrickMode(NONE) at "+JDvrCommon.getCallerInfo(3));
+                mASPlayer.setTrickMode(VideoTrickMode.NONE);
+                Log.d(TAG,"calling ASPlayer.startFast(1.0f) at "+JDvrCommon.getCallerInfo(3));
+                final int ret = mASPlayer.startFast(1.0f);
+                if (ret == 0) {
+                    speedTransition();
+                } else {
+                    Log.e(TAG,"ASPlayer.startFast returns "+ret);
+                }
+            } else if (cond7) {
                 Log.d(TAG,"calling ASPlayer.setTrickMode(SMOOTH) at "+JDvrCommon.getCallerInfo(3));
                 mASPlayer.setTrickMode(VideoTrickMode.TRICK_MODE_SMOOTH);
                 mSession.mTrickModeBySeekIsOn = false;
@@ -652,6 +667,9 @@ public class JDvrPlayer {
             Log.d(TAG,"calling ASPlayer.stopFast at "+JDvrCommon.getCallerInfo(3));
             mASPlayer.stopFast();
         }
+
+        injectData();
+
         if (mSession.mTimestampOfLastProgressNotify == 0
                 || curTs >= mSession.mTimestampOfLastProgressNotify + interval1) {
             notifyProgress();
@@ -661,7 +679,6 @@ public class JDvrPlayer {
     }
     private void handlingSkippingPlayingState() {
         final long curTs = SystemClock.elapsedRealtime();
-        injectData();
         final boolean cond1 = (mEndTime != 0 && mEndTime-mPlayingTime<300);
         final boolean cond2 = mSession.mControllerToExit;
         final boolean cond3 = mSession.mControllerToPause;
@@ -697,6 +714,13 @@ public class JDvrPlayer {
             mPlaybackHandler.removeCallbacks(mPtsRunnable);
         }
         if (cond5) {
+            Log.d(TAG,"calling ASPlayer.setTrickMode(BY_SEEK) at "+JDvrCommon.getCallerInfo(3));
+            mASPlayer.setTrickMode(VideoTrickMode.TRICK_MODE_BY_SEEK);
+            Log.d(TAG,"calling ASPlayer.startFast(" + mSession.mTargetSpeed + ") at "+JDvrCommon.getCallerInfo(3));
+            // Should NOT give 1.0f to startFast here
+            mASPlayer.startFast((float)mSession.mTargetSpeed);
+            mSession.mTrickModeBySeekIsOn = true;
+
             speedTransition();
             mLastTrickModeTimestamp = 0;
             mLastTrickModeTimeOffset = 0;
@@ -727,6 +751,9 @@ public class JDvrPlayer {
             }
             mLastTrickModeTimeOffset = newOffset;
         }
+
+        injectData();
+
         if (mSession.mTimestampOfLastProgressNotify == 0
                 || curTs >= mSession.mTimestampOfLastProgressNotify + interval1) {
             notifyProgress();
