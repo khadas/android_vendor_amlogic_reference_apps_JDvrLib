@@ -20,6 +20,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -862,6 +864,7 @@ public class JDvrFile {
 
     // Private functions
     private static int removeAssociatedFiles(String pathPrefix) {
+        Log.d(TAG,"Removing files "+pathPrefix);
         final String dirName = pathPrefix.substring(0,pathPrefix.lastIndexOf('/'));
         File dir = new File(dirName);
         if (!dir.exists()) {
@@ -874,16 +877,20 @@ public class JDvrFile {
         if (files == null) {
             return 0;
         }
+        ExecutorService executor = Executors.newFixedThreadPool(10);
         int ret = files.length;
         for (final File file: files) {
-            if (!file.delete()) {
-                Log.e(TAG,"Fails to remove " + file.getAbsolutePath());
-                ret--;
-            } else {
-                Log.d(TAG,"Removed " + file.getAbsolutePath());
-            }
+            executor.execute(() -> {
+                Log.d(TAG,"removing "+file.getAbsolutePath());
+                file.delete();
+            });
         }
-        return ret;
+        executor.shutdown();
+        while (!executor.isTerminated()) {
+            // Wait for all threads to finish
+        }
+        Log.d(TAG,"Removing files "+pathPrefix+" done");
+        return 0;
     }
     private static boolean createLockIfNotExist(String path) {
         File lockFile = new File(path);
