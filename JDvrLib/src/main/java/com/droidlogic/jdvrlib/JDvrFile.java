@@ -627,12 +627,10 @@ public class JDvrFile {
         {
             final boolean cond1 = (currSegment.size() == 0);
             final long timeElapsed = cond1 ? 0 : curTs - mTimestampOfLastIndexWrite;
-            final long timeOffsetOfSegment = currSegment.duration()
-                    + ((timeElapsed < 2 * mMinIndexInterval) ? timeElapsed : mMinIndexInterval);
             final long totalTimeSpent = curTs - mTimestampOfOrigin;
             final long totalTimePaused = mTotalObsoletePausedTime + mSegments.stream().mapToLong(JDvrSegment::getPausedTime).sum();
             final long timeOffsetFromOrigin = totalTimeSpent - totalTimePaused;
-
+            final long timeOffsetOfSegment = Math.min(currSegment.duration()+((timeElapsed<2*mMinIndexInterval)?timeElapsed:mMinIndexInterval),timeOffsetFromOrigin);
             final boolean cond2 = mPidHasChanged;
             if (cond1 || cond2) {
                 final String streamStr = mCurrentRecordingStreams.stream().map(Object::toString).collect(Collectors.joining(","));
