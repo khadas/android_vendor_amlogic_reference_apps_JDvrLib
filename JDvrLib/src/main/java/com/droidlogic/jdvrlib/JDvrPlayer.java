@@ -250,7 +250,9 @@ public class JDvrPlayer {
     private final TsPlaybackListener mTsPlaybackListener = new TsPlaybackListener() {
         @Override
         public void onPlaybackEvent(PlaybackEvent playbackEvent) {
-            //Log.d(TAG,"onPlaybackEvent "+playbackEvent.getClass().getSimpleName());
+            if (!(playbackEvent instanceof TsPlaybackListener.PtsEvent)) {
+                Log.d(TAG,"onPlaybackEvent "+playbackEvent.getClass().getSimpleName());
+            }
             if (playbackEvent instanceof TsPlaybackListener.VideoFirstFrameEvent) {
                 mPlaybackHandler.postAtFrontOfQueue(() -> mSession.mFirstVideoFrameReceived = true);
             } else if (playbackEvent instanceof TsPlaybackListener.AudioFirstFrameEvent) {
@@ -775,7 +777,9 @@ public class JDvrPlayer {
         final boolean cond9 = mSession.mFirstAudioFrameReceived;
         if (!(cond6 || cond9)) {
             final int len = injectData();
-            Log.d(TAG,"injected "+len+" bytes in PAUSED state");
+            if (len > 0) {
+                Log.d(TAG, "injected " + len + " bytes in PAUSED state");
+            }
         }
         if (cond1 && cond7) {
             mSession.mIsEOS = true;
@@ -807,6 +811,10 @@ public class JDvrPlayer {
             mASPlayer.flush();
             mJDvrFile.seek(mSession.mTargetSeekPos*1000);
             mPendingInputBuffer = null;
+            Log.d(TAG,"calling ASPlayer.setTrickMode(BY_SEEK) at "+JDvrCommon.getCallerInfo(3));
+            mASPlayer.setTrickMode(VideoTrickMode.TRICK_MODE_BY_SEEK);
+            Log.d(TAG,"calling ASPlayer.startFast(1.0) at "+JDvrCommon.getCallerInfo(3));
+            mASPlayer.startFast(1.0f);
             mSession.mFirstVideoFrameReceived = false;
             mSession.mFirstAudioFrameReceived = false;
             mSession.mTargetSeekPos = null;
