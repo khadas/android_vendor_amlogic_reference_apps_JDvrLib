@@ -421,6 +421,9 @@ public class JDvrRecorder {
             return;
         }
         mSession.mFilesReady = (mJDvrFile.duration()>0);
+        if (mSession.mFilesReady) {
+            mJDvrFile.dumpSegments();
+        }
     }
     private void handlingStartedState() {
         final long curTs = SystemClock.elapsedRealtime();

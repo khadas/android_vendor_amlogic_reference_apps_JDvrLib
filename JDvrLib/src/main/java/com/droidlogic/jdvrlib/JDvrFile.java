@@ -6,7 +6,6 @@ import android.util.Log;
 
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.io.StringReader;
@@ -163,7 +162,8 @@ public class JDvrFile {
             RandomAccessFile listStream;
             try {
                 listStream = new RandomAccessFile(listFile, "r");
-            } catch (FileNotFoundException e) {
+                listStream.getFD().sync();
+            } catch (IOException e) {
                 throw new RuntimeException(e);
             }
             try {
@@ -801,7 +801,8 @@ public class JDvrFile {
                 (mLimitSize == Long.MAX_VALUE ? 0 : Math.abs(mLimitSize)),
                 (mLimitSeconds == Integer.MAX_VALUE ? 0 : Math.abs(mLimitSeconds)));
         try {
-            FileOutputStream statStream = new FileOutputStream(mStatPath, false);
+            RandomAccessFile statStream = new RandomAccessFile(mStatPath, "rws");
+            statStream.setLength(0);
             statStream.write(statContent.getBytes(),0,statContent.length());
             statStream.close();
         } catch (IOException e) {
@@ -813,7 +814,8 @@ public class JDvrFile {
     public boolean updateListFile() throws IOException {
         if (mType == 2) { throw new RuntimeException("Cannot do this under Playback situation"); }
         try {
-            FileOutputStream listStream = new FileOutputStream(mListPath, false);
+            RandomAccessFile listStream = new RandomAccessFile(mListPath, "rws");
+            listStream.setLength(0);
             mSegments.forEach(seg -> {
                 final String line = seg.toString();
                 try {
@@ -849,6 +851,13 @@ public class JDvrFile {
         final JDvrSegment currSeg = mSegments.get(segIdx);
         final long segmentTimeOffset = time - currSeg.getStartTime();
         return currSeg.findMatchingStreamsInfo(segmentTimeOffset);
+    }
+    public void dumpSegments() {
+        if (mSegments.size()>0) {
+            Log.d(TAG, "segments size:"+mSegments.size()+", dump:"+mSegments.stream().map(JDvrSegment::toString).collect(Collectors.joining("/")));
+        } else {
+            Log.d(TAG, "segments size:"+mSegments.size());
+        }
     }
 
     // Private functions
@@ -960,10 +969,12 @@ public class JDvrFile {
         final String listContent = segments.stream().map(JDvrSegment::toString).collect(Collectors.joining());
         //Log.d(TAG,"Repaired listContent:"+listContent);
         try {
-            FileOutputStream statStream = new FileOutputStream(pathPrefix+".stat", false);
+            RandomAccessFile statStream = new RandomAccessFile(pathPrefix+".stat", "rws");
+            statStream.setLength(0);
             statStream.write(statContent.getBytes(),0,statContent.length());
             statStream.close();
-            FileOutputStream listStream = new FileOutputStream(pathPrefix+".list", false);
+            RandomAccessFile listStream = new RandomAccessFile(pathPrefix+".list", "rws");
+            listStream.setLength(0);
             listStream.write(listContent.getBytes(),0,listContent.length());
             listStream.close();
         } catch (IOException e) {

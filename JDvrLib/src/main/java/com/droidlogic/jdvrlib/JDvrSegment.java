@@ -359,6 +359,7 @@ class JDvrSegment {
         }
         try {
             mIndexStream.seek(mIndexStream.length());
+            Log.d(TAG,"writing index: "+new String(buffer));
             mIndexStream.write(buffer, 0, size);
         } catch (IOException e) {
             Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
