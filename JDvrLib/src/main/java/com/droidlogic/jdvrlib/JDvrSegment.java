@@ -199,6 +199,10 @@ class JDvrSegment {
             return JDvrAudioFormat.AUDIO_FORMAT_AAC;
         } else if (info.format == JDvrAudioFormat.AUDIO_FORMAT_EAC3) {
             return JDvrAudioFormat.AUDIO_FORMAT_EAC3;
+        } else if (info.format == JDvrAudioFormat.AUDIO_FORMAT_AC3) {
+            return JDvrAudioFormat.AUDIO_FORMAT_AC3;
+        } else if (info.format == JDvrAudioFormat.AUDIO_FORMAT_AC4) {
+            return JDvrAudioFormat.AUDIO_FORMAT_AC4;
         }
         return JDvrAudioFormat.AUDIO_FORMAT_UNDEFINED;
     }

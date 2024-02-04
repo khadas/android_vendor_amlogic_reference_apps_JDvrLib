@@ -58,6 +58,10 @@ public class JDvrCommon {
             return MediaFormat.MIMETYPE_AUDIO_AAC;
         } else if (format == JDvrAudioFormat.AUDIO_FORMAT_EAC3) {
             return MediaFormat.MIMETYPE_AUDIO_EAC3;
+        } else if (format == JDvrAudioFormat.AUDIO_FORMAT_AC3) {
+            return MediaFormat.MIMETYPE_AUDIO_AC3;
+        } else if (format == JDvrAudioFormat.AUDIO_FORMAT_AC4) {
+            return MediaFormat.MIMETYPE_AUDIO_AC4;
         } else {
             Log.e(TAG,"Unrecognized format:"+format);
             return null;
