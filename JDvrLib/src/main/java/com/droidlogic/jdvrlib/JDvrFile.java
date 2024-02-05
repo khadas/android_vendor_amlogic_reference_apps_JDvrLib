@@ -758,9 +758,9 @@ public class JDvrFile {
         }
         final int nextIdx = segIdx+1;
         final JDvrSegment currSeg = mSegments.get(segIdx);
-        final long segmentTimeOffset = mPlayingTime - currSeg.getStartTime();
+        final long refTime = Math.max(mPlayingTime-currSeg.getStartTime()-1000,0);
         // Search pts in current index file.
-        Long newSegmentPlayingTime = currSeg.findPtsFrom(mLastPts,segmentTimeOffset);
+        Long newSegmentPlayingTime = currSeg.findPtsFrom(mLastPts,refTime);
         if (newSegmentPlayingTime != null) {
             mPlayingTime = currSeg.getStartTime() + newSegmentPlayingTime;
             //Log.d(TAG,"Finding PTS1 "+mLastPts+" from seg#"+currSeg.id()+"+off:"+segmentTimeOffset+"ms returns segmentPlayingTime:"+newSegmentPlayingTime+"ms PlayingTime:"+mPlayingTime+"ms");
@@ -775,7 +775,7 @@ public class JDvrFile {
         }
         if (newSegmentPlayingTime == null) {
             Log.w(TAG,"Cannot find out matching index for pts "+mLastPts+" in seg#"
-                    +currSeg.id()+" starting from offset:"+segmentTimeOffset+"ms (and seg#"+(currSeg.id()+1)+" if any)");
+                    +currSeg.id()+" starting from offset:"+refTime+"ms (and seg#"+(currSeg.id()+1)+" if any)");
         }
         return (newSegmentPlayingTime != null) ? mPlayingTime : -1L;
     }
