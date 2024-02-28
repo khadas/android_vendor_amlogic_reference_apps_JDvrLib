@@ -23,6 +23,7 @@ import com.droidlogic.jdvrlib.OnJDvrRecorderEventListener.JDvrRecorderEvent;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -138,6 +139,9 @@ public class JDvrRecorder {
         public String toString2() {
             String flagsStr = String.format(Locale.US,"%5s", Integer.toBinaryString(flags)).replace(' ', '0');
             return "{pid:"+pid+",type:"+type+",format:"+format+",flags:"+flagsStr+"}";
+        }
+        public int toBeRemoved() {
+            return (flags & TO_BE_REMOVED) > 0 ? 0 : 1;
         }
     }
     public static class JDvrRecordingProgress {
@@ -550,12 +554,13 @@ public class JDvrRecorder {
             Log.w(TAG,"Trying to handle PID changes but status variable mPidChanged indicates there is no change");
             return;
         }
+        mSession.mStreamsPending.sort(Comparator.comparing(JDvrStreamInfo::toBeRemoved));
         Log.d(TAG,"StreamPending before: "+(mSession.mStreamsPending.size()>0 ? mSession.mStreamsPending.stream().map(JDvrStreamInfo::toString2).collect(Collectors.joining(", ")) : "null"));
         Log.d(TAG,"Streams before: "+(mSession.mStreams.size()>0 ? mSession.mStreams.stream().map(JDvrStreamInfo::toString2).collect(Collectors.joining(", ")) : "null"));
         // 1. Add new PIDs and adjust flags
         mSession.mStreamsPending.forEach(stream -> {
             if ((stream.flags & JDvrStreamInfo.TO_BE_ADDED) != 0) {
-                JDvrStreamInfo stream2 = mSession.mStreams.stream().filter(s -> (s.pid == stream.pid))
+                JDvrStreamInfo stream2 = mSession.mStreams.stream().filter(s -> (s.pid == stream.pid && (s.flags & JDvrStreamInfo.TO_BE_REMOVED) == 0))
                         .findFirst().orElse(null);
                 if (stream2 == null) {
                     mSession.mStreams.add(stream);
@@ -841,7 +846,7 @@ public class JDvrRecorder {
         }
         Message msg = new Message();
         msg.what = JDvrRecordingStatus.STREAM_STATUS_PID_CHANGED;
-        msg.obj = new JDvrStreamInfo(pid,0,0,JDvrStreamInfo.TO_BE_REMOVED);
+        msg.obj = new JDvrStreamInfo(pid,-1,-1,JDvrStreamInfo.TO_BE_REMOVED);
         mRecordingHandler.sendMessage(msg);
         return true;
     }
