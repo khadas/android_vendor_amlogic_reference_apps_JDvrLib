@@ -137,9 +137,7 @@ public class JDvrPlayer {
             mSession.mControllerToPause = false;
         } else if (message.what == JDvrPlaybackStatus.CONTROLLER_STATUS_TO_SET_SPEED) {
             mSession.mTargetSpeed = (Double) message.obj;
-            if (mSession.mTargetSpeed == 0.0d) {
-                mSession.mControllerToPause = true;
-            }
+            mSession.mControllerToPause = (mSession.mTargetSpeed == 0.0d);
         } else if (message.what == JDvrPlaybackStatus.CONTROLLER_STATUS_TO_SEEK) {
             mSession.mTargetSeekPos = (Integer) message.obj;
         }
