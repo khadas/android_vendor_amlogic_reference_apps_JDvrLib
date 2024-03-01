@@ -956,7 +956,7 @@ public class JDvrFile {
             return false;
         }
         final File[] files = dir.listFiles((file, s) -> (file.getAbsolutePath()+"/"+s).matches(pathPrefix+"-\\d+\\.idx"));
-        if (files == null) {
+        if (files.length == 0) {
             Log.w(TAG,"Cannot repair recording "+pathPrefix+", for there is not any associated .idx files");
             return false;
         }
