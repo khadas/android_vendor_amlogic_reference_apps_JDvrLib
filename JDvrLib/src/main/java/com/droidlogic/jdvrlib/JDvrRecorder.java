@@ -462,16 +462,16 @@ public class JDvrRecorder {
                     e.printStackTrace();
                 }
             });
-            Log.d(TAG,"calling DvrRecorder.stop() at "+JDvrCommon.getCallerInfo(3));
-            int result = mDvrRecorder.stop();
-            if (result != Tuner.RESULT_SUCCESS) {
-                Log.e(TAG, "DvrRecorder.stop() fails. return value: " + result);
-            }
             mSession.mIsStopping = true;
         }
     }
     private void handlingStoppingState() {
         if (mSession.mControllerToExit || mSession.mFatalIOError) {
+            Log.d(TAG,"calling DvrRecorder.stop() at "+JDvrCommon.getCallerInfo(3));
+            int result = mDvrRecorder.stop();
+            if (result != Tuner.RESULT_SUCCESS) {
+                Log.e(TAG, "DvrRecorder.stop() fails. return value: " + result);
+            }
             for (Map.Entry<Integer, Filter> entry : mFilters.entrySet()) {
                 entry.getValue().close();
             }
