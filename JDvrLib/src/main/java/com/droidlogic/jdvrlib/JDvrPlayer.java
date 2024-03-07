@@ -134,6 +134,8 @@ public class JDvrPlayer {
             mSession.mTargetSpeed = 0.0d;
         } else if (message.what == JDvrPlaybackStatus.CONTROLLER_STATUS_TO_EXIT) {
             mSession.mControllerToExit = true;
+            mSession.mControllerToStart = false;
+            mSession.mControllerToPause = false;
         } else if (message.what == JDvrPlaybackStatus.CONTROLLER_STATUS_TO_SET_SPEED) {
             mSession.mTargetSpeed = (Double) message.obj;
             if (mSession.mTargetSpeed == 0.0d) {
@@ -511,7 +513,19 @@ public class JDvrPlayer {
     private void handlingStartState() {
     }
     private void handlingInitialState() {
-        if (mSession.mControllerToStart || mSession.mControllerToPause) {
+        if (mSession.mControllerToExit || mSession.mIsEOS) {
+            try { // Consider ASPlayer may have already been released at DTVKit side
+                Log.d(TAG,"calling ASPlayer.removePlaybackListener at "+JDvrCommon.getCallerInfo(3));
+                mASPlayer.removePlaybackListener(mTsPlaybackListener);
+            } catch (NullPointerException e) {
+                Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
+            }
+            mPlaybackThread.quitSafely();
+            mJDvrFile.close();
+            mJDvrFile = null;
+            mSession.mControllerToExit = false;
+            mSession.mIsEOS = false;
+        } else if (mSession.mControllerToStart || mSession.mControllerToPause) {
             Log.d(TAG,"calling ASPlayer.flushDvr at "+JDvrCommon.getCallerInfo(3));
             try { // Consider ASPlayer may have already been released at DTVKit side
                 mASPlayer.flushDvr();
@@ -541,18 +555,6 @@ public class JDvrPlayer {
             }
             mSession.mIsStarting = true;
             mSession.mHaveStopped = false;
-        } else if (mSession.mControllerToExit || mSession.mIsEOS) {
-            try { // Consider ASPlayer may have already been released at DTVKit side
-                Log.d(TAG,"calling ASPlayer.removePlaybackListener at "+JDvrCommon.getCallerInfo(3));
-                mASPlayer.removePlaybackListener(mTsPlaybackListener);
-            } catch (NullPointerException e) {
-                Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
-            }
-            mPlaybackThread.quitSafely();
-            mJDvrFile.close();
-            mJDvrFile = null;
-            mSession.mControllerToExit = false;
-            mSession.mIsEOS = false;
         }
     }
     private void handlingStartingState() {
