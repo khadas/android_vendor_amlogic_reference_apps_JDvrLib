@@ -1,7 +1,5 @@
 package com.droidlogic.jdvrlib;
 
-import static com.droidlogic.jdvrlib.JDvrCommon.JDvrStreamType.STREAM_TYPE_OTHER;
-
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Message;
@@ -19,7 +17,6 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.concurrent.Executor;
-import java.util.stream.IntStream;
 
 public class JDvrPlayer {
     private static class JDvrPlaybackSession {
@@ -52,7 +49,7 @@ public class JDvrPlayer {
         private boolean mTrickModeBySeekIsOn = false;
         private boolean mHasPausedDecoding = false;
         private boolean mVideoDecoderInitReceived = false;
-        private boolean mAudioFormatChangeReceived = false;
+        private boolean mAudioDecoderInitReceived = false;
 
         public JDvrPlaybackSession() {
             mSessionNumber = JDvrCommon.generateSessionNumber();
@@ -258,8 +255,8 @@ public class JDvrPlayer {
                 mPlaybackHandler.postAtFrontOfQueue(() -> mSession.mFirstAudioFrameReceived = true);
             } else if (playbackEvent instanceof TsPlaybackListener.VideoDecoderInitCompletedEvent) {
                 mPlaybackHandler.postAtFrontOfQueue(() -> mSession.mVideoDecoderInitReceived = true);
-            } else if (playbackEvent instanceof TsPlaybackListener.AudioFormatChangeEvent) {
-                mPlaybackHandler.postAtFrontOfQueue(() -> mSession.mAudioFormatChangeReceived = true);
+            } else if (playbackEvent instanceof TsPlaybackListener.AudioDecoderInitCompletedEvent) {
+                mPlaybackHandler.postAtFrontOfQueue(() -> mSession.mAudioDecoderInitReceived = true);
             } else if (playbackEvent instanceof TsPlaybackListener.PtsEvent) {
                 if (((PtsEvent) playbackEvent).mPts > 0) { // Here the mPts from ASPlayer is in microsecond (us)
                     mLastPts = ((PtsEvent) playbackEvent).mPts * 90 / 1000;     // Convert it to original MPEG PTS in 90KHz and store it in mLastPts
@@ -406,7 +403,7 @@ public class JDvrPlayer {
         } else if (mSession.mState == JDvrPlaybackSession.INITIAL_STATE) {
             final boolean cond1 = mSession.mIsStarting;
             final boolean cond2 = mSession.mVideoDecoderInitReceived;
-            final boolean cond3 = mSession.mAudioFormatChangeReceived;
+            final boolean cond3 = mSession.mAudioDecoderInitReceived;
             if (cond1 && (cond2 || cond3)) {
                 mSession.mState = JDvrPlaybackSession.STARTING_STATE;
                 Log.i(TAG, "State transition: INITIAL => STARTING");
@@ -558,11 +555,12 @@ public class JDvrPlayer {
         }
     }
     private void handlingStartingState() {
-        final boolean cond1 = mSession.mAudioFormatChangeReceived;
-        final boolean cond2 = !mSession.mRecordingIsUpdatedLately;
-        final boolean cond3 = (mSession.mTargetSeekPos != null);
-        final boolean cond4 = mSession.mControllerToExit;
-        if (cond3 && cond1) {
+        final boolean cond1 = mSession.mAudioDecoderInitReceived;
+        final boolean cond2 = mSession.mVideoDecoderInitReceived;
+        final boolean cond3 = !mSession.mRecordingIsUpdatedLately;
+        final boolean cond4 = (mSession.mTargetSeekPos != null);
+        final boolean cond5 = mSession.mControllerToExit;
+        if (cond4) {
             Log.d(TAG, "calling ASPlayer.flushDvr at " + JDvrCommon.getCallerInfo(3));
             mASPlayer.flushDvr();
             mJDvrFile.seek(mSession.mTargetSeekPos * 1000);
@@ -571,11 +569,15 @@ public class JDvrPlayer {
             mSession.mTargetSeekPos = null;
             mPlaybackHandler.removeCallbacks(mPtsRunnable);
         }
-        if (cond4) {
+        final boolean isAudioOnly = (mJDvrFile.getVideoPID() == 0x1fff);
+        if (cond5) {
             mSession.mIsStopping = true;
         }
-        final boolean condA = (-1 == injectData());
-        if (cond2 && condA) {
+        int n = 0;
+        if ((!isAudioOnly && cond2) || (isAudioOnly && cond1)) {
+            n = injectData();
+        }
+        if (cond3 && n == -1) {
             mSession.mIsEOS = true;
         }
     }
