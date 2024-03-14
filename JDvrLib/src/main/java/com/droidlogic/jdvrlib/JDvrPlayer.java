@@ -434,8 +434,8 @@ public class JDvrPlayer {
         } else if (mSession.mState == JDvrPlaybackSession.SMOOTH_PLAYING_STATE) {
             final boolean cond1 = mSession.mIsStopping;
             final boolean cond2 = mSession.mIsEOS;
-            final boolean cond3 = (mSession.mTargetSpeed == 0.0d);
-            final boolean cond4 = isSkippingPlaySpeed(mSession.mTargetSpeed);
+            final boolean cond3 = (mSession.mCurrentSpeed == 0.0d);
+            final boolean cond4 = isSkippingPlaySpeed(mSession.mCurrentSpeed);
             if (cond1 || cond2) {
                 mSession.mState = JDvrPlaybackSession.STOPPING_STATE;
                 Log.i(TAG, "State transition: SMOOTH_PLAYING => STOPPING");
@@ -449,8 +449,8 @@ public class JDvrPlayer {
         } else if (mSession.mState == JDvrPlaybackSession.SKIPPING_PLAYING_STATE) {
             final boolean cond1 = mSession.mIsStopping;
             final boolean cond2 = mSession.mIsEOS;
-            final boolean cond3 = (mSession.mTargetSpeed == 0.0d);
-            final boolean cond4 = isSmoothPlaySpeed(mSession.mTargetSpeed);
+            final boolean cond3 = (mSession.mCurrentSpeed == 0.0d);
+            final boolean cond4 = isSmoothPlaySpeed(mSession.mCurrentSpeed);
             if (cond1 || cond2) {
                 mSession.mState = JDvrPlaybackSession.STOPPING_STATE;
                 Log.i(TAG, "State transition: SKIPPING_PLAYING => STOPPING");
@@ -462,8 +462,8 @@ public class JDvrPlayer {
                 Log.i(TAG, "State transition: SKIPPING_PLAYING => SMOOTH_PLAYING");
             }
         } else if (mSession.mState == JDvrPlaybackSession.PAUSED_STATE) {
-            final boolean cond1 = isSmoothPlaySpeed(mSession.mTargetSpeed) ;
-            final boolean cond2 = isSkippingPlaySpeed(mSession.mTargetSpeed);
+            final boolean cond1 = isSmoothPlaySpeed(mSession.mCurrentSpeed) ;
+            final boolean cond2 = isSkippingPlaySpeed(mSession.mCurrentSpeed);
             final boolean cond3 = mSession.mIsStopping;
             if (cond3) {
                 mSession.mState = JDvrPlaybackSession.STOPPING_STATE;
@@ -521,7 +521,7 @@ public class JDvrPlayer {
             mJDvrFile = null;
             mSession.mControllerToExit = false;
             mSession.mIsEOS = false;
-        } else if (mSession.mControllerToStart || mSession.mControllerToPause) {
+        } else if ((mSession.mControllerToStart || mSession.mControllerToPause) && !mSession.mIsStarting) {
             Log.d(TAG,"calling ASPlayer.flushDvr at "+JDvrCommon.getCallerInfo(3));
             try { // Consider ASPlayer may have already been released at DTVKit side
                 mASPlayer.flushDvr();
@@ -544,7 +544,6 @@ public class JDvrPlayer {
             if (mSession.mControllerToPause) {
                 Log.d(TAG,"calling ASPlayer.setTrickMode(BY_SEEK) at "+JDvrCommon.getCallerInfo(3));
                 mASPlayer.setTrickMode(VideoTrickMode.TRICK_MODE_BY_SEEK);
-                // Here speed 1.0f is given to ensure AudioFirstFrameEvent reception.
                 Log.d(TAG,"calling ASPlayer.startFast(1.0) at "+JDvrCommon.getCallerInfo(3));
                 mASPlayer.startFast(1.0f);
                 mSession.mTrickModeBySeekIsOn = true;
@@ -585,72 +584,51 @@ public class JDvrPlayer {
         final long curTs = SystemClock.elapsedRealtime();
         final boolean cond1 = (mEndTime != 0 && mEndTime-mPlayingTime<EXIT_THRESHOLD);
         final boolean cond2 = mSession.mControllerToExit;
-        final boolean cond3 = mSession.mCurrentSpeed != mSession.mTargetSpeed;
-        final boolean cond4 = mSession.mControllerToPause;
-        final boolean cond5 = (mSession.mTargetSeekPos != null);
-        final boolean cond6 = isSkippingPlaySpeed(mSession.mTargetSpeed);
-        final boolean cond7 = isSmoothPlaySpeed(mSession.mTargetSpeed);
-        final boolean cond8 = mSession.mCurrentSpeed == 0.0;
+        final boolean cond3 = mSession.mControllerToPause;
+        final boolean cond4 = (mSession.mTargetSeekPos != null);
+        final boolean cond5 = mSession.mCurrentSpeed != mSession.mTargetSpeed;
+        final boolean cond6 = isSmoothPlaySpeed(mSession.mTargetSpeed);
+        final boolean cond7 = isSkippingPlaySpeed(mSession.mTargetSpeed);
         final boolean cond9 = !mSession.mRecordingIsUpdatedLately;
         mSession.mIsStarting = false;
         mSession.mControllerToStart = false;
-        if (cond1 && cond9) {
+        if (cond1 && cond9) { // To STOPPING
             mSession.mIsEOS = true;
             mSession.mIsStopping = true;
-        }
-        if (cond2) {
+        } else if (cond2) { // To STOPPING
             mSession.mIsStopping = true;
         }
-        if (cond3) {
-            if (cond8) {
-                Log.d(TAG,"calling ASPlayer.resumeVideoDecoding at "+JDvrCommon.getCallerInfo(3));
-                mASPlayer.resumeVideoDecoding();
-                mASPlayer.resumeAudioDecoding();
-            }
-            if (isSkippingPlaySpeed(mSession.mCurrentSpeed)) {
-                // To clear dirty data in BY_SEEK to SMOOTH transition.
-                mASPlayer.flush();
-                mASPlayer.flushDvr();
-                mPendingInputBuffer = null;
-            }
-            if (Math.abs(mSession.mTargetSpeed - 1) <= 0.001) {
-                Log.d(TAG,"calling ASPlayer.setTrickMode(NONE) at "+JDvrCommon.getCallerInfo(3));
-                mASPlayer.setTrickMode(VideoTrickMode.NONE);
-                Log.d(TAG,"calling ASPlayer.startFast(1.0f) at "+JDvrCommon.getCallerInfo(3));
-                final int ret = mASPlayer.startFast(1.0f);
-                if (ret == 0) {
-                    speedTransition();
+        if (cond5) { // Change speed
+            if (cond6) { // To other SMOOTH speed
+                if (mSession.mTargetSpeed == 1.0d) {
+                    Log.d(TAG, "calling ASPlayer.setTrickMode(NONE) at " + JDvrCommon.getCallerInfo(3));
+                    mASPlayer.setTrickMode(VideoTrickMode.NONE);
                 } else {
-                    Log.e(TAG,"ASPlayer.startFast returns "+ret);
+                    Log.d(TAG,"calling ASPlayer.setTrickMode(SMOOTH) at "+JDvrCommon.getCallerInfo(3));
+                    mASPlayer.setTrickMode(VideoTrickMode.TRICK_MODE_SMOOTH);
                 }
-            } else if (cond7) {
-                Log.d(TAG,"calling ASPlayer.setTrickMode(SMOOTH) at "+JDvrCommon.getCallerInfo(3));
-                mASPlayer.setTrickMode(VideoTrickMode.TRICK_MODE_SMOOTH);
-                mSession.mTrickModeBySeekIsOn = false;
                 Log.d(TAG,"calling ASPlayer.startFast("+mSession.mTargetSpeed+") at "+JDvrCommon.getCallerInfo(3));
-                final int ret = mASPlayer.startFast((float)mSession.mTargetSpeed);
-                if (ret == 0) {
-                    speedTransition();
-                } else {
-                    Log.e(TAG,"ASPlayer.startFast returns "+ret);
-                }
-            }
-            if (cond4) {
-                mSession.mTargetSpeed = 0.0d;
+                mASPlayer.startFast((float)mSession.mTargetSpeed);
+                mSession.mTrickModeBySeekIsOn = false;
+            } else if (cond7) { // To SKIPPING
+                Log.d(TAG,"calling ASPlayer.setTrickMode(BY_SEEK) at "+JDvrCommon.getCallerInfo(3));
+                mASPlayer.setTrickMode(VideoTrickMode.TRICK_MODE_BY_SEEK);
+                Log.d(TAG,"calling ASPlayer.startFast(" + mSession.mTargetSpeed + ") at "+JDvrCommon.getCallerInfo(3));
+                mASPlayer.startFast((float)mSession.mTargetSpeed); // Should NOT give 1.0f to startFast here
+                mSession.mTrickModeBySeekIsOn = true;
+                mLastTrickModeTimestamp = 0;
+                mLastTrickModeTimeOffset = 0;
+            } else if (cond3) { // To PAUSED
                 Log.d(TAG,"calling ASPlayer.stopFast at "+JDvrCommon.getCallerInfo(3));
                 mASPlayer.stopFast();
                 Log.d(TAG,"calling ASPlayer.pauseVideoDecoding at "+JDvrCommon.getCallerInfo(3));
-                final int ret = mASPlayer.pauseVideoDecoding();
+                mASPlayer.pauseVideoDecoding();
                 mASPlayer.pauseAudioDecoding();
                 mSession.mHasPausedDecoding = true;
-                if (ret == 0) {
-                    speedTransition();
-                } else {
-                    Log.e(TAG,"ASPlayer.pauseVideoDecoding returns "+ret);
-                }
             }
+            speedTransition();
         }
-        if (cond5) {
+        if (cond4) { // To seek
             Log.d(TAG,"calling ASPlayer.flushDvr/flush at "+JDvrCommon.getCallerInfo(3));
             mASPlayer.flushDvr();
             mASPlayer.flush();
@@ -659,14 +637,7 @@ public class JDvrPlayer {
             mSession.mTargetSeekPos = null;
             mPlaybackHandler.removeCallbacks(mPtsRunnable);
         }
-        if (cond6) {
-            speedTransition();
-            Log.d(TAG,"calling ASPlayer.stopFast at "+JDvrCommon.getCallerInfo(3));
-            mASPlayer.stopFast();
-        }
-
         injectData();
-
         if (mSession.mTimestampOfLastProgressNotify == 0
                 || curTs >= mSession.mTimestampOfLastProgressNotify + interval1) {
             notifyProgress();
@@ -680,49 +651,53 @@ public class JDvrPlayer {
         final boolean cond2 = mSession.mControllerToExit;
         final boolean cond3 = mSession.mControllerToPause;
         final boolean cond4 = (mSession.mTargetSeekPos != null);
-        final boolean cond5 = isSmoothPlaySpeed(mSession.mCurrentSpeed);
-        final boolean cond6 = (curTs >= mLastTrickModeTimestamp + 1000);
-        final boolean cond7 = !mSession.mRecordingIsUpdatedLately;
+        final boolean cond5 = mSession.mCurrentSpeed != mSession.mTargetSpeed;
+        final boolean cond6 = isSmoothPlaySpeed(mSession.mTargetSpeed);
+        final boolean cond8 = (mSession.mTargetSpeed == 1.0d);
+        final boolean cond9 = !mSession.mRecordingIsUpdatedLately;
+        final boolean cond10 = (curTs >= mLastTrickModeTimestamp + 1000);
         mSession.mIsStarting = false;
         mSession.mControllerToStart = false;
-        if (cond1 && cond7) {
+        if (cond1 && cond9) { // To STOPPING
             mSession.mIsEOS = true;
             mSession.mIsStopping = true;
-        }
-        if (cond2) {
+        } else if (cond2) { // To STOPPING
             mSession.mIsStopping = true;
         }
-        if (cond3) {
-            Log.d(TAG,"calling ASPlayer.pauseVideoDecoding at "+JDvrCommon.getCallerInfo(3));
-            mASPlayer.pauseVideoDecoding();
-            mASPlayer.pauseAudioDecoding();
-            mSession.mHasPausedDecoding = true;
+        if (cond5) { // Change speed
+            if (cond6) { // To SMOOTH
+                if (cond8) { // To 1.0
+                    Log.d(TAG, "calling ASPlayer.setTrickMode(NONE) at " + JDvrCommon.getCallerInfo(3));
+                    mASPlayer.setTrickMode(VideoTrickMode.NONE);
+                } else { // To other smooth speed
+                    Log.d(TAG, "calling ASPlayer.setTrickMode(SMOOTH) at " + JDvrCommon.getCallerInfo(3));
+                    mASPlayer.setTrickMode(VideoTrickMode.TRICK_MODE_SMOOTH);
+                }
+                Log.d(TAG, "calling ASPlayer.startFast(" + mSession.mTargetSpeed + ") at " + JDvrCommon.getCallerInfo(3));
+                mASPlayer.startFast((float) mSession.mTargetSpeed);
+                mSession.mTrickModeBySeekIsOn = false;
+                mLastTrickModeTimestamp = 0;
+            } else if (cond3) { // To PAUSED
+                Log.d(TAG, "calling ASPlayer.pauseVideoDecoding at " + JDvrCommon.getCallerInfo(3));
+                mASPlayer.pauseVideoDecoding();
+                mASPlayer.pauseAudioDecoding();
+                mSession.mHasPausedDecoding = true;
+                mLastTrickModeTimestamp = 0;
+            }
             speedTransition();
         }
-        if (cond4) {
-            Log.d(TAG,"calling ASPlayer.flushDvr/flush at "+JDvrCommon.getCallerInfo(3));
+        if (cond4) { // To seek
+            Log.d(TAG, "calling ASPlayer.flushDvr/flush at " + JDvrCommon.getCallerInfo(3));
             mASPlayer.flushDvr();
             mASPlayer.flush();
-            mJDvrFile.seek(mSession.mTargetSeekPos*1000);
+            mJDvrFile.seek(mSession.mTargetSeekPos * 1000);
             mPendingInputBuffer = null;
             mLastTrickModeTimestamp = curTs;
-            mLastTrickModeTimeOffset = mSession.mTargetSeekPos*1000;
+            mLastTrickModeTimeOffset = mSession.mTargetSeekPos * 1000;
             mSession.mTargetSeekPos = null;
             mPlaybackHandler.removeCallbacks(mPtsRunnable);
         }
-        if (cond5) {
-            Log.d(TAG,"calling ASPlayer.setTrickMode(BY_SEEK) at "+JDvrCommon.getCallerInfo(3));
-            mASPlayer.setTrickMode(VideoTrickMode.TRICK_MODE_BY_SEEK);
-            Log.d(TAG,"calling ASPlayer.startFast(" + mSession.mTargetSpeed + ") at "+JDvrCommon.getCallerInfo(3));
-            // Should NOT give 1.0f to startFast here
-            mASPlayer.startFast((float)mSession.mTargetSpeed);
-            mSession.mTrickModeBySeekIsOn = true;
-
-            speedTransition();
-            mLastTrickModeTimestamp = 0;
-            mLastTrickModeTimeOffset = 0;
-        }
-        if (cond6) {
+        if (cond10) { // To skip
             if (mLastTrickModeTimestamp == 0) {
                 final long playingTime = mJDvrFile.getPlayingTime();
                 if (playingTime >= 0) {
@@ -748,9 +723,7 @@ public class JDvrPlayer {
             }
             mLastTrickModeTimeOffset = newOffset;
         }
-
         injectData();
-
         if (mSession.mTimestampOfLastProgressNotify == 0
                 || curTs >= mSession.mTimestampOfLastProgressNotify + interval1) {
             notifyProgress();
@@ -762,45 +735,45 @@ public class JDvrPlayer {
         final long curTs = SystemClock.elapsedRealtime();
         mSession.mControllerToPause = false;
         final boolean cond1 = (mEndTime != 0 && mEndTime-mPlayingTime<EXIT_THRESHOLD);
-        final boolean cond2 = isSmoothPlaySpeed(mSession.mCurrentSpeed);
-        final boolean cond3 = isSkippingPlaySpeed(mSession.mCurrentSpeed);
-        final boolean cond4 = mSession.mControllerToExit;
-        final boolean cond5 = (mSession.mTargetSeekPos != null);
-        final boolean cond6 = mSession.mFirstVideoFrameReceived;
-        final boolean cond7 = !mSession.mRecordingIsUpdatedLately;
-        final boolean cond8 = !mSession.mHasPausedDecoding;
-        final boolean cond9 = mSession.mFirstAudioFrameReceived;
-        if (!(cond6 || cond9)) {
+        final boolean cond2 = mSession.mControllerToExit;
+        final boolean cond4 = (mSession.mTargetSeekPos != null);
+        final boolean cond5 = mSession.mCurrentSpeed != mSession.mTargetSpeed;
+        final boolean cond6 = isSmoothPlaySpeed(mSession.mTargetSpeed);
+        final boolean cond8 = (mSession.mTargetSpeed == 1.0d);
+        final boolean cond9 = !mSession.mRecordingIsUpdatedLately;
+        final boolean cond10 = mSession.mFirstVideoFrameReceived;
+        final boolean cond11 = mSession.mFirstAudioFrameReceived;
+        final boolean cond12 = !mSession.mHasPausedDecoding;
+        if (!(cond10 || cond11)) {
             final int len = injectData();
             if (len > 0) {
                 Log.d(TAG, "injected " + len + " bytes in PAUSED state");
             }
         }
-        if (cond1 && cond7) {
+        if (cond1 && cond9) { // To STOPPING
             mSession.mIsEOS = true;
             mSession.mIsStopping = true;
-        }
-        if (cond4) {
+        } else if (cond2) { // To STOPPING
             mSession.mIsStopping = true;
-        } else if (cond2) {
-            Log.d(TAG,"calling ASPlayer.stopFast at "+JDvrCommon.getCallerInfo(3));
-            mASPlayer.stopFast();
-            Log.d(TAG,"calling ASPlayer.pauseVideoDecoding at "+JDvrCommon.getCallerInfo(3));
-            final int ret = mASPlayer.pauseVideoDecoding();
-            mASPlayer.pauseAudioDecoding();
-            mSession.mHasPausedDecoding = true;
-            if (ret == 0) {
-                speedTransition();
-                mSession.mFirstVideoFrameReceived = false;
-                mSession.mFirstAudioFrameReceived = false;
-            } else {
-                Log.e(TAG,"ASPlayer.pauseVideoDecoding returns "+ret);
+        }
+        if (cond5) { // Change speed
+            Log.d(TAG,"calling ASPlayer.resumeVideoDecoding at "+JDvrCommon.getCallerInfo(3));
+            mASPlayer.resumeVideoDecoding();
+            mASPlayer.resumeAudioDecoding();
+            if (cond6) { // To SMOOTH
+                if (cond8) { // To 1.0
+                    Log.d(TAG, "calling ASPlayer.setTrickMode(NONE) at " + JDvrCommon.getCallerInfo(3));
+                    mASPlayer.setTrickMode(VideoTrickMode.NONE);
+                } else { // To other smooth speed
+                    Log.d(TAG, "calling ASPlayer.setTrickMode(SMOOTH) at " + JDvrCommon.getCallerInfo(3));
+                    mASPlayer.setTrickMode(VideoTrickMode.TRICK_MODE_SMOOTH);
+                }
+                Log.d(TAG, "calling ASPlayer.startFast(" + mSession.mTargetSpeed + ") at " + JDvrCommon.getCallerInfo(3));
+                mASPlayer.startFast((float) mSession.mTargetSpeed);
+                mSession.mTrickModeBySeekIsOn = false;
             }
-        } else if (cond3) {
             speedTransition();
-            mSession.mFirstVideoFrameReceived = false;
-            mSession.mFirstAudioFrameReceived = false;
-        } else if (cond5) {
+        } else if (cond4) { // To seek
             Log.d(TAG,"calling ASPlayer.flushDvr/flush at "+JDvrCommon.getCallerInfo(3));
             mASPlayer.flushDvr();
             mASPlayer.flush();
@@ -814,7 +787,7 @@ public class JDvrPlayer {
             mSession.mFirstAudioFrameReceived = false;
             mSession.mTargetSeekPos = null;
             mPlaybackHandler.removeCallbacks(mPtsRunnable);
-        } else if ((cond6 || cond9) && cond8) {
+        } else if ((cond10 || cond11) && cond12) {
             Log.d(TAG,"calling ASPlayer.pauseVideoDecoding at "+JDvrCommon.getCallerInfo(3));
             mASPlayer.pauseVideoDecoding();
             mASPlayer.pauseAudioDecoding();
