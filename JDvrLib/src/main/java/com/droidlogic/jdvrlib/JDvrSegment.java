@@ -629,9 +629,9 @@ class JDvrSegment {
         for (int j=i; j<mTimeOffsetIndexArray.size()-1; j++) {
             final JDvrSegmentTimeOffsetIndex idx0 = mTimeOffsetIndexArray.get(j);
             final JDvrSegmentTimeOffsetIndex idx1 = mTimeOffsetIndexArray.get(j+1);
-            if ( j > 0 && idx0.pts <= pts && idx1.pts >= pts) { // handle common condition
+            if ( j >= 0 && idx0.pts <= pts && pts < idx1.pts) { // handle common condition
                 return idx0.time;
-            } else if (j == 0 && idx1.pts > pts && idx1.pts - pts <= JDvrFile.mPtsMargin) { // handle boundary condition 1
+            } else if (j == 0 && pts < idx0.pts && idx0.pts - pts <= JDvrFile.mPtsMargin) { // handle boundary condition 1
                 return idx0.time;
             } else if (j+2 == len && pts > idx1.pts && pts - idx1.pts <= JDvrFile.mPtsMargin) { // handle boundary condition 2
                 return idx1.time;

@@ -874,10 +874,13 @@ public class JDvrPlayer {
     }
     private void notifyProgress() {
         //Log.d(TAG,"JDvrPlayer.notifyProgress");
-        final long playingTime = mJDvrFile.getPlayingTime();
+        long playingTime = mJDvrFile.getPlayingTime();
         if (playingTime == -1) {
             Log.w(TAG,"Failed to get playing time, so skip notifying progress this time");
             return;
+        }
+        if (mSession.mCurrentSpeed<0.0d && mLastTrickModeTimeOffset == 0 && playingTime<EXIT_THRESHOLD) {
+            playingTime = 0;
         }
         JDvrPlaybackProgress progress = new JDvrPlaybackProgress();
         progress.sessionNumber = mSession.mSessionNumber;
