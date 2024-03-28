@@ -647,7 +647,7 @@ public class JDvrPlayer {
     }
     private void handlingSkippingPlayingState() {
         final long curTs = SystemClock.elapsedRealtime();
-        final boolean cond1 = (mEndTime != 0 && mEndTime-mPlayingTime<EXIT_THRESHOLD);
+        final boolean cond1 = (mEndTime != 0 && mEndTime-mPlayingTime<EXIT_THRESHOLD+1000);
         final boolean cond2 = mSession.mControllerToExit;
         final boolean cond3 = mSession.mControllerToPause;
         final boolean cond4 = (mSession.mTargetSeekPos != null);
@@ -706,7 +706,7 @@ public class JDvrPlayer {
             }
             mLastTrickModeTimestamp = curTs;
             long newOffset = (int) (mLastTrickModeTimeOffset + mSession.mTargetSpeed * 1000);
-            newOffset = Math.min(newOffset,mJDvrFile.getStartTime()+mJDvrFile.duration());
+            newOffset = Math.min(newOffset,mJDvrFile.getStartTime()+mJDvrFile.duration()-EXIT_THRESHOLD);
             newOffset = Math.max(newOffset,mJDvrFile.getStartTime());
             Log.d(TAG,"calling ASPlayer.flushDvr/flush at "+JDvrCommon.getCallerInfo(3));
             mASPlayer.flushDvr();
