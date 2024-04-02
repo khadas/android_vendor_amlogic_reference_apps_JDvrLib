@@ -823,15 +823,13 @@ public class JDvrFile {
         try {
             RandomAccessFile listStream = new RandomAccessFile(mListPath, "rws");
             listStream.setLength(0);
-            mSegments.forEach(seg -> {
-                final String line = seg.toString();
-                try {
-                    listStream.write(line.getBytes(), 0, line.length());
-                } catch (IOException e) {
-                    Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
-                    e.printStackTrace();
-                }
-            });
+            final String lines = mSegments.stream().map(JDvrSegment::toString).collect(Collectors.joining(""));
+            try {
+                listStream.write(lines.getBytes(), 0, lines.length());
+            } catch (IOException e) {
+                Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
+                e.printStackTrace();
+            }
             listStream.close();
         } catch (IOException e) {
             Log.e(TAG, "Exception at "+JDvrCommon.getCallerInfo(3)+": " + e);
