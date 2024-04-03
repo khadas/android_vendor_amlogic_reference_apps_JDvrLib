@@ -258,8 +258,8 @@ public class JDvrPlayer {
             } else if (playbackEvent instanceof TsPlaybackListener.AudioDecoderInitCompletedEvent) {
                 mPlaybackHandler.postAtFrontOfQueue(() -> mSession.mAudioDecoderInitReceived = true);
             } else if (playbackEvent instanceof TsPlaybackListener.PtsEvent) {
-                if (((PtsEvent) playbackEvent).mPts > 0) { // Here the mPts from ASPlayer is in microsecond (us)
-                    mLastPts = ((PtsEvent) playbackEvent).mPts * 90 / 1000;     // Convert it to original MPEG PTS in 90KHz and store it in mLastPts
+                if (((PtsEvent) playbackEvent).getPts() > 0) { // Here the pts from ASPlayer is in microsecond (us)
+                    mLastPts = ((PtsEvent) playbackEvent).getPts() * 90 / 1000;     // Convert it to original MPEG PTS in 90KHz and store it in mLastPts
                     if (!mPlaybackHandler.hasCallbacks(mPtsRunnable)) {
                         mPlaybackHandler.post(mPtsRunnable);
                     }
